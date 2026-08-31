@@ -34,11 +34,20 @@ git push -u origin main
    build context: repo root (`.`) - this matters, see the comment at the
    top of `backend/Dockerfile` for why.
 3. Environment variables: add `DATABASE_URL` = the connection string from
-   step 1.
+   step 1, and (Week 6+) `GUARDRAIL_JWT_SECRET` = a random value - anything
+   long and unguessable, e.g. `openssl rand -hex 32`. Without this the
+   backend falls back to an insecure default and logs a loud warning; fine
+   for a five-minute test, not for a URL you're handing to someone. You can
+   optionally also set `GUARDRAIL_ADMIN_USERNAME` / `GUARDRAIL_ADMIN_PASSWORD`
+   to choose the first dashboard login yourself instead of letting one
+   generate.
 4. Deploy. Once live, note the public URL Render gives you
    (e.g. `https://agent-guardrail-backend.onrender.com`) - you'll need it
    in step 3. Confirm it works: visit `<that-url>/health`, should return
    `{"status":"ok"}`.
+5. Open the service's Logs tab and find the seeded admin login and demo
+   API key, printed once on first startup - same as running it locally.
+   Save both; they won't be shown again.
 
 ## 3. Frontend
 
@@ -55,17 +64,21 @@ git push -u origin main
 
 ## 4. Verify it end to end
 
-1. Open the deployed dashboard URL.
-2. Run the demo agent from your own machine, pointed at the deployed
-   backend instead of localhost:
+1. Open the deployed dashboard URL and sign in with the seeded admin login
+   from step 5 above.
+2. In the dashboard's **API Keys** tab, mint a key for `agent_id=finance-agent`
+   (the seeded demo key from the backend's logs also works, if you'd
+   rather reuse that).
+3. Run `demo_agent/test_deployed.py` from your own machine with that key:
 
-   ```python
-   # one-off, doesn't need to be saved anywhere
-   from guardrail_sdk import Guardrail
-   g = Guardrail(agent_id="finance-agent", backend_url="https://<your-backend-url>")
+   ```bash
+   cd demo_agent
+   # PowerShell:
+   $env:PYTHONPATH="..\sdk"; $env:GUARDRAIL_API_KEY="gk_..."
+   python test_deployed.py
    ```
 
-3. Confirm the deployed dashboard shows the activity live. If it does,
+4. Confirm the deployed dashboard shows the activity live. If it does,
    you have a genuinely deployed, working system - not just a local demo.
 
 ## What NOT to do

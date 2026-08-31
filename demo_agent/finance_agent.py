@@ -6,13 +6,26 @@ prove the interception/logging path works, not to build a real LLM agent
 loop. Later weeks can swap this for a LangGraph/OpenAI Agents SDK agent
 without touching the SDK or backend at all - that's the whole point of the
 SDK sitting between agent and tools.
+
+Week 6: the SDK now requires an API key. Set GUARDRAIL_API_KEY to the key
+printed in the backend's console output on first startup (search for
+"Seeded a demo API key for agent_id='finance-agent'"), or mint your own via
+the dashboard's API Keys tab once logged in.
 """
+import os
 import sys
 from guardrail_sdk import Guardrail, GuardrailBlockedError, GuardrailApprovalPendingError
 
 from tools import get_balance, transfer_money, delete_user
 
-guardrail = Guardrail(agent_id="finance-agent", backend_url="http://localhost:8000")
+API_KEY = os.environ.get("GUARDRAIL_API_KEY")
+if not API_KEY:
+    sys.exit(
+        "GUARDRAIL_API_KEY is not set. Check the backend's console output for the "
+        "seeded demo key, then set it: (PowerShell) $env:GUARDRAIL_API_KEY=\"gk_...\""
+    )
+
+guardrail = Guardrail(agent_id="finance-agent", api_key=API_KEY, backend_url="http://localhost:8000")
 
 
 def run():

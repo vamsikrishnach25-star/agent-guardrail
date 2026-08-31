@@ -4,7 +4,13 @@ Core Guardrail SDK.
 Usage:
     from guardrail_sdk import Guardrail
 
-    guardrail = Guardrail(agent_id="finance-agent", backend_url="http://localhost:8000")
+    guardrail = Guardrail(
+        agent_id="finance-agent",
+        backend_url="http://localhost:8000",
+        api_key="gk_...",  # Week 6: required - see backend console output on
+                            # first run for a seeded demo key, or mint one via
+                            # POST /api/v1/keys once logged into the dashboard
+    )
 
     with guardrail.session() as session:
         result = session.call(transfer_money, amount=25000, account="ACC1234")
@@ -34,13 +40,13 @@ from .exceptions import GuardrailBlockedError, GuardrailApprovalPendingError
 
 
 class Guardrail:
-    def __init__(self, agent_id: str, backend_url: str = "http://localhost:8000", fail_open: bool = False,
+    def __init__(self, agent_id: str, api_key: str, backend_url: str = "http://localhost:8000", fail_open: bool = False,
                  approval_poll_interval: float = 2.0, approval_poll_timeout: float = 120.0):
         self.agent_id = agent_id
         self.fail_open = fail_open
         self.approval_poll_interval = approval_poll_interval
         self.approval_poll_timeout = approval_poll_timeout
-        self._client = GuardrailAPIClient(backend_url)
+        self._client = GuardrailAPIClient(backend_url, api_key=api_key)
 
     @contextmanager
     def session(self, session_id: str | None = None):

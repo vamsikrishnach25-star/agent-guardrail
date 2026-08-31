@@ -3,25 +3,19 @@ import { api } from "../api.js";
 import { usePolling } from "../usePolling.js";
 
 export default function ApprovalQueue() {
-  const [decidedBy, setDecidedBy] = useState(() => localStorage.getItem("guardrail_approver") || "");
   const [busyId, setBusyId] = useState(null);
   const pending = usePolling(() => api.listApprovals("PENDING"), 2500);
 
-  const remember = (name) => {
-    setDecidedBy(name);
-    localStorage.setItem("guardrail_approver", name);
-  };
-
+  // Week 6: who's deciding is no longer typed in here - it's whoever is
+  // logged into the dashboard right now (the backend reads it off the JWT
+  // session). That's the actual fix for the old free-text field: nobody
+  // could type someone else's name into the audit trail before.
   const act = async (approvalId, action) => {
-    if (!decidedBy.trim()) {
-      alert("Enter your name first so the audit trail knows who decided this.");
-      return;
-    }
     const reason = prompt(`Optional reason for ${action === "approve" ? "approving" : "denying"}:`) || undefined;
     setBusyId(approvalId);
     try {
-      if (action === "approve") await api.approveApproval(approvalId, decidedBy, reason);
-      else await api.denyApproval(approvalId, decidedBy, reason);
+      if (action === "approve") await api.approveApproval(approvalId, reason);
+      else await api.denyApproval(approvalId, reason);
       await pending.refresh();
     } catch (e) {
       alert(`Failed: ${e.message}`);
@@ -48,15 +42,6 @@ export default function ApprovalQueue() {
         Actions the Decision Engine paused for human sign-off. Refreshes every ~2.5s -
         the waiting agent resumes within a few seconds of your decision here.
       </p>
-
-      <div className="toolbar">
-        <label style={{ fontSize: 13, color: "var(--text-dim)" }}>Approving as:</label>
-        <input
-          placeholder="your name"
-          value={decidedBy}
-          onChange={(e) => remember(e.target.value)}
-        />
-      </div>
 
       {items.length === 0 ? (
         <div className="empty-state">Nothing pending. Try a transfer over ₹5,000 in the demo agent.</div>

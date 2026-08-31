@@ -4,6 +4,7 @@ SQLAlchemy models.
 Week 1: events table.
 Week 2: policies table (configurable rules - never hardcoded).
 Week 3: approvals table (the human-approval queue).
+Week 6: users table (dashboard logins) + api_keys table (agent/SDK auth).
 """
 import uuid
 from datetime import datetime, timezone
@@ -106,3 +107,37 @@ class Approval(Base):
 
     created_at = Column(DateTime(timezone=True), default=_now, nullable=False)
     decided_at = Column(DateTime(timezone=True), nullable=True)
+
+
+class User(Base):
+    """A human who can log into the dashboard and act on approvals. Deciding
+    who approved/denied a REQUIRE_APPROVAL action now comes from this table
+    (via the JWT session) instead of a free-text field the caller supplies -
+    see routers/approvals.py. That's the whole point of adding this: an
+    audit trail that trusts a client-supplied string isn't really an audit
+    trail."""
+    __tablename__ = "users"
+
+    id = Column(String, primary_key=True, default=_uuid)
+    username = Column(String, unique=True, index=True, nullable=False)
+    password_hash = Column(String, nullable=False)
+
+    created_at = Column(DateTime(timezone=True), default=_now, nullable=False)
+
+
+class ApiKey(Base):
+    """An agent's credential for calling the events API. Only key_hash is
+    ever stored - the raw key is generated once, shown to the creator, and
+    is not recoverable after that (same as GitHub/Stripe API keys). Scoped
+    to a single agent_id: report_tool_call rejects any event whose
+    agent_id doesn't match the authenticating key, so one agent's key can't
+    be used to impersonate another agent in the audit trail."""
+    __tablename__ = "api_keys"
+
+    id = Column(String, primary_key=True, default=_uuid)
+    agent_id = Column(String, index=True, nullable=False)
+    label = Column(String, nullable=True)
+    key_hash = Column(String, unique=True, index=True, nullable=False)
+
+    created_at = Column(DateTime(timezone=True), default=_now, nullable=False)
+    revoked_at = Column(DateTime(timezone=True), nullable=True)

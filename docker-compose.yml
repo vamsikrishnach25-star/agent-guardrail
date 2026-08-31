@@ -26,6 +26,9 @@ services:
       dockerfile: backend/Dockerfile
     environment:
       DATABASE_URL: postgresql://guardrail:guardrail@postgres:5432/guardrail
+      # Week 6: set a real value for anything beyond local docker-compose -
+      # this default is fine for a throwaway local Postgres instance only.
+      GUARDRAIL_JWT_SECRET: local-docker-compose-secret-not-for-real-use
     ports:
       - "8000:8000"
     depends_on:

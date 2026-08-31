@@ -66,5 +66,47 @@ class ApprovalOut(BaseModel):
 
 
 class ApprovalDecisionIn(BaseModel):
-    decided_by: str
+    # Week 6: `decided_by` is no longer client-supplied - it comes from the
+    # authenticated dashboard session (see routers/approvals.py), so a
+    # human can't type someone else's name into the audit trail. Only the
+    # free-text reason is still theirs to provide.
     reason: Optional[str] = None
+
+
+class LoginIn(BaseModel):
+    username: str
+    password: str
+
+
+class TokenOut(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    username: str
+    expires_in_seconds: int
+
+
+class UserOut(BaseModel):
+    id: str
+    username: str
+
+    model_config = {"from_attributes": True}
+
+
+class ApiKeyIn(BaseModel):
+    agent_id: str
+    label: Optional[str] = None
+
+
+class ApiKeyOut(BaseModel):
+    id: str
+    agent_id: str
+    label: Optional[str] = None
+    created_at: str
+    revoked_at: Optional[str] = None
+    key_preview: str  # last 6 chars only, e.g. "...a1B2c3" - never the full key again
+
+
+class ApiKeyCreatedOut(ApiKeyOut):
+    # Only present in the response to the creation call - the raw key is
+    # shown exactly once and cannot be retrieved again after this.
+    raw_key: str
