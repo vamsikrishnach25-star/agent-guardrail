@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.devdata/
+*.egg-info/
+.env
+venv/
+.venv/
+guardrail_dev.db

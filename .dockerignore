@@ -1,0 +1,8 @@
+**/__pycache__/
+**/*.pyc
+frontend/node_modules/
+frontend/dist/
+guardrail_dev.db
+guardrail_dev.db-journal
+.devdata/
+.git/
