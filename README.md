@@ -5,10 +5,16 @@ agent and the tools/APIs it's allowed to call: intercepts tool calls,
 evaluates policy and risk, allows/blocks/pauses for human approval, and
 logs a complete audit trail.
 
+**Live demo:** dashboard at https://agent-guardrail-1-olau.onrender.com,
+backend API at https://agent-guardrail-zuls.onrender.com — both on
+Render's free tier, so the first request after idle time can take 30-50s
+to wake up. Run `demo_agent/test_deployed.py` to generate live activity
+against the deployed backend and watch it show up on the dashboard.
+
 Full architecture and phased plan: see `Agent_Guardrail_Build_Plan.md` and
 `Agent_Guardrail_Project_Proposal.docx` in this folder.
 
-## Status: Week 5 — Docker, benchmarks, deployment prep
+## Status: Week 5 — deployed, Docker, benchmarks
 
 This is the MVP finish line - everything from Weeks 1-4, plus:
 
