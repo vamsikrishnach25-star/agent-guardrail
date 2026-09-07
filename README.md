@@ -1,5 +1,7 @@
 # Agent Guardrail
 
+[![CI](https://github.com/vamsikrishnach25-star/agent-guardrail/actions/workflows/ci.yml/badge.svg)](https://github.com/vamsikrishnach25-star/agent-guardrail/actions/workflows/ci.yml)
+
 Runtime safety and observability platform for AI agents. Sits between an
 agent and the tools/APIs it's allowed to call: intercepts tool calls,
 evaluates policy and risk, allows/blocks/pauses for human approval, and
@@ -16,42 +18,44 @@ activity against the deployed backend.
 Full architecture and phased plan: see `Agent_Guardrail_Build_Plan.md` and
 `Agent_Guardrail_Project_Proposal.docx` in this folder.
 
-## Status: Week 6 — real authentication, deployed, Docker, benchmarks
+## Status: Week 7 — automated tests + CI, on top of real auth, deployed, Docker, benchmarks
 
-Everything from Weeks 1-5, plus closing the two biggest gaps a security
-tool having no real auth of its own would leave open:
+Everything from Weeks 1-6, plus a real automated test suite instead of
+"I tested it manually and it worked":
 
-- **API key auth for agents.** Every SDK call now carries an `X-API-Key`
-  header, validated against a hashed key stored server-side, scoped to one
-  `agent_id` - a key can't be used to report events under a different
-  agent's name. See `backend/app/auth.py` and `backend/app/security.py`.
-- **Real dashboard login.** The whole UI now sits behind a JWT-based
-  login instead of being open to anyone who finds the URL. Approving or
-  denying a REQUIRE_APPROVAL action records `decided_by` from the
-  authenticated session - not a free-text field the caller could type
-  anything into, which is what it was through Week 5.
-- **Docker** - `docker-compose up --build` runs the real stack (Postgres,
-  not the SQLite dev fallback) in one command: `docker-compose.yml`,
-  `backend/Dockerfile`, `frontend/Dockerfile`.
-- **Real, measured benchmarks** - `scripts/benchmark.py` load-tests the
-  decision pipeline; actual results (not estimates) are in `BENCHMARKS.md`,
-  including an honest finding about a SQLite write-lock bottleneck under
-  concurrency - worth reading before an interview.
-- **Deployment instructions** - `DEPLOYMENT.md` walks through getting a
-  live URL on Render (or Railway/Fly.io). Account creation and clicking
-  through the provider's UI is on you; the configs and steps are ready.
+- **45 pytest tests** covering the whole backend through real HTTP calls
+  (FastAPI's TestClient), not just the engines in isolation - auth
+  (login, API keys, revocation, cross-agent impersonation), the policy/
+  risk/decision pipeline (ALLOW/BLOCK/REQUIRE_APPROVAL outcomes), the
+  approval flow (including that `decided_by` can't be spoofed by the
+  client), policy CRUD, and API key management. See `backend/tests/`.
+- **Deterministic test fixtures** - `backend/conftest.py` resets the
+  schema and reseeds one known admin user + the default policies before
+  every single test, so tests never depend on execution order or leak
+  state into each other.
+- **CI on every push/PR** - `.github/workflows/ci.yml` runs the full
+  suite on GitHub Actions against `main` and every pull request; a red X
+  on a PR means something's actually broken, not just "looked fine
+  locally."
 
-Automated tests + CI, a real agent-framework integration (beyond the toy
-demo_agent), and a proper policy DSL are next - see
-`Agent_Guardrail_Build_Plan.md` for the priority order if there's runway
-left before interviews.
+Previous weeks: API key auth for agents and real JWT dashboard login
+(Week 6), Docker (`docker-compose up --build`), measured benchmarks
+(`BENCHMARKS.md`), and a live deployment (`DEPLOYMENT.md`).
+
+A real agent-framework integration (beyond the toy demo_agent) and a
+proper policy DSL are next - see `Agent_Guardrail_Build_Plan.md` for the
+priority order if there's runway left before interviews.
 
 ## Project layout
 
 ```
 agent-guardrail/
+  .github/workflows/ci.yml Runs the backend test suite on every push/PR
   backend/
     Dockerfile             Backend container (see comment re: build context)
+    pytest.ini              Points pytest at backend/tests
+    conftest.py              Shared fixtures: test DB reset+reseed, auth/agent headers
+    tests/                   45 tests: auth, events/policy pipeline, approvals, policies, keys
     app/
       policy_engine.py      Evaluates configured policies against a tool call
       risk_engine.py         Additive risk scoring (0-100 -> LOW/MEDIUM/HIGH/CRITICAL)
@@ -140,6 +144,21 @@ Check the raw API directly any time:
 curl http://localhost:8000/api/v1/events
 curl http://localhost:8000/api/v1/approvals
 ```
+
+## Running the tests
+
+```bash
+pip install -r requirements.txt
+cd backend
+pytest -v
+```
+
+All 45 tests run against a throwaway SQLite file (`conftest.py` points
+`DATABASE_URL` at one before anything else imports), reset to a clean,
+identically-seeded schema before every test - no shared state between
+tests, no dependency on execution order, no need for a real Postgres
+instance just to run the suite. The same command runs in CI on every push
+and pull request (`.github/workflows/ci.yml`).
 
 ### Why SQLite for local dev?
 
@@ -265,3 +284,19 @@ a public URL (Render, or any Docker-based host) instead of just localhost.
   demo *works* either way - it only shows up when you ask "what stops
   someone from lying to the audit log," which is exactly the question an
   interviewer reviewing a safety tool is likely to ask.
+- **Tests hit the real HTTP layer, not the engines directly (Week 7).**
+  `backend/tests/` goes through FastAPI's `TestClient` for every test -
+  login, then a real `POST /api/v1/events` with an API key header - rather
+  than importing `decide()` and calling it as a plain function. That's
+  deliberately more end-to-end: it also exercises auth, serialization, and
+  persistence, so a bug in "the JWT dependency silently lets an expired
+  token through" would actually get caught, whereas a pure unit test of
+  the decision engine never touches that code path at all.
+- **Every test starts from an identical, freshly-seeded database, not a
+  shared one.** `conftest.py`'s `db` fixture drops and recreates the whole
+  schema before each test, then reseeds one known admin user and the two
+  default policies. The alternative - one shared test DB, tests hoping
+  they don't interfere with each other - is exactly how test suites become
+  order-dependent and flaky. It costs a bit of speed (each test pays for a
+  schema rebuild); at 45 tests that trade is still worth it for suite
+  reliability.
