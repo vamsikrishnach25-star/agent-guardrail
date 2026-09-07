@@ -33,7 +33,8 @@ class ToolResultIn(BaseModel):
 class PolicyIn(BaseModel):
     name: str
     tool_name: str
-    condition: Optional[str] = None
+    condition: Optional[str] = None            # legacy: simpleeval expression string
+    condition_dsl: Optional[dict[str, Any]] = None  # Week 9: structured condition tree, see policy_dsl.py
     action: str  # ALLOW | BLOCK | REQUIRE_APPROVAL
     priority: int = 100
     enabled: bool = True
@@ -44,6 +45,26 @@ class PolicyOut(PolicyIn):
     id: str
 
     model_config = {"from_attributes": True}
+
+
+class PolicySimulateIn(BaseModel):
+    """Week 9: dry-run a hypothetical tool call against the currently
+    configured policies - nothing gets persisted, so an admin can check
+    what a policy (new or existing) would actually do before it goes
+    live."""
+    tool_name: str
+    agent_id: str = "simulated-agent"
+    arguments: dict[str, Any] = {}
+
+
+class PolicySimulateOut(BaseModel):
+    decision: str
+    policy_result: Optional[str] = None
+    risk_score: Optional[float] = None
+    risk_level: Optional[str] = None
+    reason: Optional[str] = None
+    risk_factors: list[str] = []
+    matched_policies: list[str] = []
 
 
 class ApprovalOut(BaseModel):

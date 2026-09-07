@@ -51,18 +51,29 @@ class Policy(Base):
     """
     A configurable rule the Policy Engine evaluates against every tool call.
 
-    `condition` is an optional boolean expression evaluated against the
-    call's arguments dict (e.g. "amount > 5000"). If null/empty, the policy
-    matches every call to `tool_name` unconditionally. Evaluated with
-    simpleeval, NOT Python's eval() - arbitrary code execution in a safety
-    product would be an obvious own-goal.
+    Two ways to express a condition, evaluated in this order (see
+    policy_engine.py):
+
+    1. `condition_dsl` (Week 9, preferred) - a structured condition tree,
+       see policy_dsl.py. Can reference tool_name/agent_id/arguments.* and
+       combine conditions with all/any/not.
+    2. `condition` (legacy) - a flat simpleeval boolean expression string
+       against the call's arguments dict (e.g. "amount > 5000"). Still
+       fully supported - Week 9 didn't require migrating existing policies.
+
+    If neither is set, the policy matches every call to `tool_name`
+    unconditionally. Both are evaluated with restricted interpreters
+    (simpleeval / the hand-written DSL evaluator), NOT Python's eval() -
+    arbitrary code execution in a safety product would be an obvious
+    own-goal.
     """
     __tablename__ = "policies"
 
     id = Column(String, primary_key=True, default=_uuid)
     name = Column(String, unique=True, nullable=False)
     tool_name = Column(String, index=True, nullable=False)
-    condition = Column(String, nullable=True)  # e.g. "amount > 5000"
+    condition = Column(String, nullable=True)  # legacy: simpleeval expression string, e.g. "amount > 5000"
+    condition_dsl = Column(JSON, nullable=True)  # Week 9: structured condition tree, see policy_dsl.py
     action = Column(String, nullable=False)     # ALLOW | BLOCK | REQUIRE_APPROVAL
     priority = Column(Integer, nullable=False, default=100)  # lower runs first
     enabled = Column(Boolean, nullable=False, default=True)

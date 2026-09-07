@@ -15,6 +15,10 @@ valid agent API key, and the key's agent_id must match the event's
 agent_id - an agent can authenticate itself, but can't report events under
 a different agent's name. GET (the dashboard's read path) requires a
 logged-in human instead - different credential, different trust boundary.
+
+Week 9: the actual policy/risk/decision pipeline moved to pipeline.py so
+the new dry-run "test this policy" endpoint (routers/policies.py) can
+reuse the exact same logic instead of duplicating or re-implementing it.
 """
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
@@ -23,27 +27,14 @@ from sqlalchemy.orm import Session
 from ..auth import require_agent, require_user
 from ..database import get_db
 from ..models import ApiKey, Event, Approval, User
+from ..pipeline import run_pipeline
 from ..schemas import ToolCallEventIn, DecisionOut, ToolResultIn
-from ..policy_engine import evaluate_policies
-from ..risk_engine import calculate_risk
-from ..decision_engine import decide as run_decision_engine
 
 router = APIRouter(prefix="/api/v1/events", tags=["events"])
 
 
 def decide(db: Session, event_in: ToolCallEventIn) -> dict:
-    policy_matches = evaluate_policies(db, event_in.tool_name, event_in.arguments)
-    risk = calculate_risk(event_in.tool_name, event_in.arguments)
-    outcome = run_decision_engine(policy_matches, risk)
-
-    return {
-        "decision": outcome.decision,
-        "policy_result": outcome.policy_result,
-        "risk_score": risk.score,
-        "risk_level": risk.level,
-        "reason": outcome.reason,
-        "risk_factors": risk.factors,
-    }
+    return run_pipeline(db, event_in.tool_name, event_in.agent_id, event_in.arguments)
 
 
 @router.post("", response_model=DecisionOut)

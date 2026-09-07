@@ -18,33 +18,51 @@ activity against the deployed backend.
 Full architecture and phased plan: see `Agent_Guardrail_Build_Plan.md` and
 `Agent_Guardrail_Project_Proposal.docx` in this folder.
 
-## Status: Week 8 — a real LLM decides the tool calls, not a script
+## Status: Week 9 — a real structured policy DSL, plus a dry-run tester
 
-Everything from Weeks 1-7, plus proof Guardrail works on an agent that
-actually thinks, not just a fixed sequence of function calls:
+Everything from Weeks 1-8, plus a policy language that can express things
+the old flat condition strings genuinely couldn't:
 
-- **`demo_agent/openai_agent.py`** - a GPT-driven agent using OpenAI's
-  function-calling API. Given a plain-English instruction, the model
-  itself decides which tool(s) to call, in what order, and with what
-  arguments - every one of those model-chosen calls still goes through
-  `session.call()`, so the exact same policy/risk/approval pipeline
-  applies to LLM-originated calls as to the toy `finance_agent.py`'s
-  hardcoded ones. Swapping the decision-maker required zero changes to
-  the SDK or backend - only this one new file.
-- **6 tests for the tool-calling loop** (`demo_agent/test_openai_agent.py`)
-  that mock the OpenAI response and the Guardrail session, so the
-  translation logic (tool_call -> `session.call()` -> JSON result fed
-  back to the model, including how a BLOCK gets surfaced instead of
-  crashing the loop) is verified without spending real API calls.
+- **`backend/app/policy_dsl.py`** - a small, structured condition
+  language: leaf comparisons (`{"field": "arguments.amount", "op": "gt",
+  "value": 5000}`) composed with `all`/`any`/`not`, evaluated by a
+  hand-written interpreter (not `eval()`, not even simpleeval - a fixed,
+  enumerated whitelist of operations, same reasoning as the original
+  simpleeval choice). `field` can reference the call itself
+  (`tool_name`, `agent_id`) as well as `arguments.*`, and conditions can
+  now express OR/AND/NOT logic across multiple fields - "block if amount
+  is huge OR the account is on a flagged list" wasn't expressible as one
+  simpleeval string before this.
+- **Fully backward compatible.** The original `condition` string field
+  still works exactly as before - `policy_engine.py` tries
+  `condition_dsl` first and falls back to the legacy string. Nothing that
+  shipped in Weeks 1-8 broke; only the seeded `high-value-transfer`
+  policy was migrated to the new format, as the flagship example.
+- **Validated at save time, not match time.** `POST`/`PATCH
+  /api/v1/policies` now reject a malformed `condition_dsl` with a 400 and
+  a specific reason immediately - an admin never saves a policy that
+  silently never matches anything.
+- **`POST /api/v1/policies/simulate`** - a dry-run endpoint: give it a
+  hypothetical `tool_name`/`agent_id`/`arguments`, get back the decision
+  the real pipeline would make, with zero data persisted. The dashboard's
+  Policies tab now has a "test a call" panel built on this, so you can
+  check a policy actually does what you meant before an agent hits it for
+  real.
+- **31 new backend tests** covering the DSL evaluator directly (every op,
+  nested combinators, malformed-input rejection), the DSL driving a real
+  decision end-to-end through the events API, the legacy string path
+  still working, and the simulate endpoint (86 backend tests total now).
 
-Previous weeks: a 45-test pytest suite with CI on every push/PR (Week 7),
-API key auth for agents and real JWT dashboard login (Week 6), Docker
+Previous weeks: a real GPT function-calling agent through the same SDK
+(Week 8), a 45-test pytest suite with CI on every push/PR (Week 7), API
+key auth for agents and real JWT dashboard login (Week 6), Docker
 (`docker-compose up --build`), measured benchmarks (`BENCHMARKS.md`), and
 a live deployment (`DEPLOYMENT.md`).
 
-A proper policy DSL (beyond simpleeval condition strings) is next - see
-`Agent_Guardrail_Build_Plan.md` for the priority order if there's runway
-left before interviews.
+That closes out every item from the original "everything, including a
+real policy DSL" scope - see `Agent_Guardrail_Build_Plan.md` for what a
+next phase (multi-agent, anomaly detection) would look like if there's
+still runway before interviews.
 
 ## Project layout
 
@@ -58,6 +76,8 @@ agent-guardrail/
     tests/                   45 tests: auth, events/policy pipeline, approvals, policies, keys
     app/
       policy_engine.py      Evaluates configured policies against a tool call
+      policy_dsl.py            Week 9: structured condition tree (AST + evaluator)
+      pipeline.py               Week 9: shared policy->risk->decision pipeline (events + simulate)
       risk_engine.py         Additive risk scoring (0-100 -> LOW/MEDIUM/HIGH/CRITICAL)
       decision_engine.py     Combines policy + risk into one final decision
       security.py             Password hashing (bcrypt), API key gen, JWT encode/decode
@@ -65,7 +85,7 @@ agent-guardrail/
       seed_policies.py       Seeds 2 default policies on first run
       seed_admin.py            Seeds 1 admin login + 1 demo API key on first run
       routers/events.py      POST tool call -> decision (API key); GET events (login)
-      routers/policies.py    CRUD API for policies (all routes require login)
+      routers/policies.py    CRUD + /simulate dry-run for policies (all routes require login)
       routers/approvals.py   List/approve/deny (login) + by-event poll (API key)
       routers/auth.py          POST /auth/login -> JWT; GET /auth/me
       routers/keys.py          Mint/list/revoke agent API keys (requires login)
@@ -356,3 +376,37 @@ a public URL (Render, or any Docker-based host) instead of just localhost.
   every other caller uses. That's the real test of "is the SDK actually
   the enforcement boundary, or just the boundary for the one caller we
   built it against" - and it held.
+- **A structured tree instead of a bigger string grammar (Week 9).** The
+  tempting shortcut was extending simpleeval's allowed syntax (add `and`/
+  `or` support, more functions, etc). That just grows the surface area of
+  a string being parsed as code. A JSON tree with a fixed set of node
+  types (`all`/`any`/`not`/leaf) can express the same boolean logic
+  without ever being "a string that might contain something clever" -
+  every node is either a known combinator or a `{field, op, value}`
+  triple, full stop. That's closer to how OPA/Rego structure rules
+  (composable, structured, not a single opaque expression) without
+  pulling in an actual policy-as-code runtime for a project this size.
+- **The DSL and the legacy string are two paths through one function, not
+  a rewrite.** `policy_engine.evaluate_policies()` checks `condition_dsl`
+  first and falls back to `condition` - it was never "migrate everything
+  or nothing." Real systems basically never get to do a clean-slate
+  rewrite of something already in production; being asked "how would you
+  roll out a new policy format without breaking every existing policy"
+  is a fair interview question, and this is a genuine (if small-scale)
+  answer to it, not a hypothetical one.
+- **Validation happens at write time, evaluation fails safe at read
+  time - deliberately different failure modes for different moments.**
+  Saving a malformed `condition_dsl` gets a 400 immediately
+  (`policy_dsl.validate()`, called from `routers/policies.py`) - the
+  admin finds out right away. A comparison that fails *during* evaluation
+  (wrong type, missing field) returns non-match instead of raising
+  (`policy_dsl.evaluate()`) - one bad policy must never take down the
+  decision pipeline for every other call in flight. Same two-failure-mode
+  split the legacy simpleeval path already used; the DSL just makes it
+  explicit instead of implicit.
+- **The simulate endpoint reuses the real pipeline, not a copy of it.**
+  `pipeline.py` was factored out specifically so `POST
+  /api/v1/policies/simulate` and `POST /api/v1/events` call the exact
+  same `run_pipeline()` - a "test mode" that quietly runs slightly
+  different logic than production is worse than no test mode, because it
+  can pass while the real path is broken (or vice versa).

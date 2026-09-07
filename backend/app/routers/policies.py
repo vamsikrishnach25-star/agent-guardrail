@@ -10,19 +10,37 @@ Week 6: every route here requires a logged-in dashboard user - editing
 policy is a meaningfully privileged action (it changes what the system
 will ALLOW/BLOCK/REQUIRE_APPROVAL for every future call) and was
 unauthenticated before this.
+
+Week 9: `condition_dsl` (see policy_dsl.py) is validated eagerly here, at
+create/update time - a malformed DSL tree gets rejected with a 400 and a
+specific reason immediately, instead of being saved and silently never
+matching anything. Also adds POST /simulate, a dry-run endpoint for
+testing a hypothetical call against the live policy set without creating
+a real event.
 """
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from .. import policy_dsl
 from ..auth import require_user
 from ..database import get_db
 from ..models import Policy, User
-from ..schemas import PolicyIn, PolicyOut
+from ..pipeline import run_pipeline
+from ..schemas import PolicyIn, PolicyOut, PolicySimulateIn, PolicySimulateOut
 
 router = APIRouter(prefix="/api/v1/policies", tags=["policies"])
 
 VALID_ACTIONS = {"ALLOW", "BLOCK", "REQUIRE_APPROVAL"}
+
+
+def _validate_condition_dsl(policy_in: PolicyIn) -> None:
+    if policy_in.condition_dsl is None:
+        return
+    try:
+        policy_dsl.validate(policy_in.condition_dsl)
+    except policy_dsl.InvalidDSL as e:
+        raise HTTPException(status_code=400, detail=f"invalid condition_dsl: {e}")
 
 
 @router.get("", response_model=list[PolicyOut])
@@ -30,10 +48,16 @@ def list_policies(db: Session = Depends(get_db), _user: User = Depends(require_u
     return db.execute(select(Policy).order_by(Policy.priority.asc())).scalars().all()
 
 
+@router.post("/simulate", response_model=PolicySimulateOut)
+def simulate_policy(payload: PolicySimulateIn, db: Session = Depends(get_db), _user: User = Depends(require_user)):
+    return run_pipeline(db, payload.tool_name, payload.agent_id, payload.arguments)
+
+
 @router.post("", response_model=PolicyOut)
 def create_policy(policy_in: PolicyIn, db: Session = Depends(get_db), _user: User = Depends(require_user)):
     if policy_in.action not in VALID_ACTIONS:
         raise HTTPException(status_code=400, detail=f"action must be one of {VALID_ACTIONS}")
+    _validate_condition_dsl(policy_in)
     existing = db.execute(select(Policy).where(Policy.name == policy_in.name)).scalar_one_or_none()
     if existing:
         raise HTTPException(status_code=409, detail="a policy with this name already exists")
@@ -46,6 +70,9 @@ def create_policy(policy_in: PolicyIn, db: Session = Depends(get_db), _user: Use
 
 @router.patch("/{policy_id}", response_model=PolicyOut)
 def update_policy(policy_id: str, policy_in: PolicyIn, db: Session = Depends(get_db), _user: User = Depends(require_user)):
+    if policy_in.action not in VALID_ACTIONS:
+        raise HTTPException(status_code=400, detail=f"action must be one of {VALID_ACTIONS}")
+    _validate_condition_dsl(policy_in)
     policy = db.get(Policy, policy_id)
     if not policy:
         raise HTTPException(status_code=404, detail="policy not found")

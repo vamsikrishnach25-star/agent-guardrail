@@ -7,3 +7,6 @@ __pycache__/
 venv/
 .venv/
 guardrail_dev.db
+node_modules/
+dist/
+*.timestamp-*.mjs

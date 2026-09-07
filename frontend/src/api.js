@@ -90,6 +90,11 @@ export const api = {
   updatePolicy: (id, policy) =>
     request(`/api/v1/policies/${id}`, { method: "PATCH", body: JSON.stringify(policy) }),
   deletePolicy: (id) => request(`/api/v1/policies/${id}`, { method: "DELETE" }),
+  // Week 9: dry-run a hypothetical call against the live policy set -
+  // nothing gets persisted, so this is safe to use as a "test before you
+  // save" preview.
+  simulatePolicy: (payload) =>
+    request("/api/v1/policies/simulate", { method: "POST", body: JSON.stringify(payload) }),
 
   listKeys: () => request("/api/v1/keys"),
   createKey: (agentId, label) =>
