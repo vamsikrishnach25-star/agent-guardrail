@@ -18,33 +18,33 @@ activity against the deployed backend.
 Full architecture and phased plan: see `Agent_Guardrail_Build_Plan.md` and
 `Agent_Guardrail_Project_Proposal.docx` in this folder.
 
-## Status: Week 7 — automated tests + CI, on top of real auth, deployed, Docker, benchmarks
+## Status: Week 8 — a real LLM decides the tool calls, not a script
 
-Everything from Weeks 1-6, plus a real automated test suite instead of
-"I tested it manually and it worked":
+Everything from Weeks 1-7, plus proof Guardrail works on an agent that
+actually thinks, not just a fixed sequence of function calls:
 
-- **45 pytest tests** covering the whole backend through real HTTP calls
-  (FastAPI's TestClient), not just the engines in isolation - auth
-  (login, API keys, revocation, cross-agent impersonation), the policy/
-  risk/decision pipeline (ALLOW/BLOCK/REQUIRE_APPROVAL outcomes), the
-  approval flow (including that `decided_by` can't be spoofed by the
-  client), policy CRUD, and API key management. See `backend/tests/`.
-- **Deterministic test fixtures** - `backend/conftest.py` resets the
-  schema and reseeds one known admin user + the default policies before
-  every single test, so tests never depend on execution order or leak
-  state into each other.
-- **CI on every push/PR** - `.github/workflows/ci.yml` runs the full
-  suite on GitHub Actions against `main` and every pull request; a red X
-  on a PR means something's actually broken, not just "looked fine
-  locally."
+- **`demo_agent/openai_agent.py`** - a GPT-driven agent using OpenAI's
+  function-calling API. Given a plain-English instruction, the model
+  itself decides which tool(s) to call, in what order, and with what
+  arguments - every one of those model-chosen calls still goes through
+  `session.call()`, so the exact same policy/risk/approval pipeline
+  applies to LLM-originated calls as to the toy `finance_agent.py`'s
+  hardcoded ones. Swapping the decision-maker required zero changes to
+  the SDK or backend - only this one new file.
+- **6 tests for the tool-calling loop** (`demo_agent/test_openai_agent.py`)
+  that mock the OpenAI response and the Guardrail session, so the
+  translation logic (tool_call -> `session.call()` -> JSON result fed
+  back to the model, including how a BLOCK gets surfaced instead of
+  crashing the loop) is verified without spending real API calls.
 
-Previous weeks: API key auth for agents and real JWT dashboard login
-(Week 6), Docker (`docker-compose up --build`), measured benchmarks
-(`BENCHMARKS.md`), and a live deployment (`DEPLOYMENT.md`).
+Previous weeks: a 45-test pytest suite with CI on every push/PR (Week 7),
+API key auth for agents and real JWT dashboard login (Week 6), Docker
+(`docker-compose up --build`), measured benchmarks (`BENCHMARKS.md`), and
+a live deployment (`DEPLOYMENT.md`).
 
-A real agent-framework integration (beyond the toy demo_agent) and a
-proper policy DSL are next - see `Agent_Guardrail_Build_Plan.md` for the
-priority order if there's runway left before interviews.
+A proper policy DSL (beyond simpleeval condition strings) is next - see
+`Agent_Guardrail_Build_Plan.md` for the priority order if there's runway
+left before interviews.
 
 ## Project layout
 
@@ -71,6 +71,9 @@ agent-guardrail/
       routers/keys.py          Mint/list/revoke agent API keys (requires login)
   sdk/guardrail_sdk/      The Guardrail SDK agents import to call tools through
   demo_agent/             Toy finance agent + tools used to exercise the system
+    finance_agent.py        Week 1: hardcoded call sequence, proves the interception path
+    openai_agent.py          Week 8: real GPT function-calling agent, same SDK/backend
+    test_openai_agent.py    Mocked tests for the tool-calling <-> Guardrail wiring
   frontend/               Vite + React dashboard (Overview, Approvals, Traces, Policies)
     Dockerfile             Multi-stage: Vite build -> nginx static serve
   scripts/start_dev.py    Local dev launcher (backend, SQLite by default)
@@ -143,6 +146,41 @@ Check the raw API directly any time:
 ```bash
 curl http://localhost:8000/api/v1/events
 curl http://localhost:8000/api/v1/approvals
+```
+
+## Running the GPT-driven agent (Week 8)
+
+With the backend and dashboard already running (see above), mint a
+Guardrail API key for the new agent from the dashboard's **API Keys**
+tab: agent_id `openai-finance-agent`. You'll also need an OpenAI API key
+from platform.openai.com - this demo makes a handful of short
+`gpt-4o-mini` calls, well under a dollar total.
+
+```bash
+# terminal 3 (instead of, or in addition to, finance_agent.py)
+cd demo_agent
+# PowerShell:
+$env:PYTHONPATH="..\sdk"
+$env:GUARDRAIL_API_KEY="gk_..."     # the key you just minted for openai-finance-agent
+$env:OPENAI_API_KEY="sk-..."
+python openai_agent.py
+```
+
+With no arguments it runs a default instruction that naturally exercises
+all three outcomes - an allowed balance check, a high-value transfer that
+needs approval, and a blocked user deletion - because GPT itself reads the
+instruction and decides to call all three tools, not because the script
+tells it to. Pass your own instruction instead:
+
+```bash
+python openai_agent.py "Check the balance on ACC1234 and transfer 500 to it"
+```
+
+Run the mocked tests (no API keys needed) any time with:
+
+```bash
+cd demo_agent
+PYTHONPATH=../sdk pytest test_openai_agent.py -v
 ```
 
 ## Running the tests
@@ -300,3 +338,21 @@ a public URL (Render, or any Docker-based host) instead of just localhost.
   order-dependent and flaky. It costs a bit of speed (each test pays for a
   schema rebuild); at 45 tests that trade is still worth it for suite
   reliability.
+- **The LLM never touches a real function - only JSON (Week 8).** GPT
+  picks a tool name and a JSON arguments blob; `openai_agent.py` looks
+  that name up in a fixed `TOOL_FUNCTIONS` dict and calls the real Python
+  function through `session.call()`. The model cannot invoke arbitrary
+  code or call anything outside that dict, no matter what it "decides" -
+  the same boundary that stops a compromised or hallucinating agent from
+  doing something ungoverned is what stops a malicious prompt injection
+  from doing the same thing. That boundary is also why a BLOCKed call
+  comes back to the model as a normal-looking tool result (`{"error":
+  "blocked by guardrail: ..."}`) instead of an exception crashing the
+  loop - the model needs to see the outcome to explain it to the user,
+  same as it would see any other tool failure.
+- **Guardrail doesn't know or care that an LLM is involved at all.**
+  Nothing in `backend/` or `sdk/` changed to support Week 8 - the whole
+  integration is one new file that calls the exact same `session.call()`
+  every other caller uses. That's the real test of "is the SDK actually
+  the enforcement boundary, or just the boundary for the one caller we
+  built it against" - and it held.
