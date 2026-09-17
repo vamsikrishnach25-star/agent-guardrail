@@ -3,8 +3,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .database import Base, engine, SessionLocal
 from .routers import events, policies, approvals, auth, keys
-from .seed_admin import seed_admin_user, seed_demo_api_key
-from .seed_policies import seed_default_policies
+from .seed_admin import seed_admin_user, seed_demo_api_key, seed_support_api_key
+from .seed_policies import seed_default_policies, seed_support_policies
 
 # Week 1: create tables directly. Alembic migrations get introduced once
 # the schema stabilizes past Week 2 (policies/risk/approvals tables).
@@ -14,8 +14,14 @@ with SessionLocal() as db:
     seed_default_policies(db)
     seed_admin_user(db)
     seed_demo_api_key(db)
+    # Week 10: both upsert-by-name/agent_id, so unlike the three calls
+    # above they run (and do something useful) on every startup, not just
+    # a brand-new install - see their docstrings for why that matters for
+    # the already-live deployment.
+    seed_support_policies(db)
+    seed_support_api_key(db)
 
-app = FastAPI(title="Agent Guardrail", version="0.2.0")
+app = FastAPI(title="Agent Guardrail", version="0.3.0")
 
 app.add_middleware(
     CORSMiddleware,

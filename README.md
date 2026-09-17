@@ -18,51 +18,51 @@ activity against the deployed backend.
 Full architecture and phased plan: see `Agent_Guardrail_Build_Plan.md` and
 `Agent_Guardrail_Project_Proposal.docx` in this folder.
 
-## Status: Week 9 — a real structured policy DSL, plus a dry-run tester
+## Status: Week 10 — a second demo agent, proving this isn't finance-only
 
-Everything from Weeks 1-8, plus a policy language that can express things
-the old flat condition strings genuinely couldn't:
+Everything from Weeks 1-9, plus the thing every one of those weeks was
+implicitly betting on: that Guardrail is genuinely reusable infrastructure,
+not something quietly shaped around one agent's tools.
 
-- **`backend/app/policy_dsl.py`** - a small, structured condition
-  language: leaf comparisons (`{"field": "arguments.amount", "op": "gt",
-  "value": 5000}`) composed with `all`/`any`/`not`, evaluated by a
-  hand-written interpreter (not `eval()`, not even simpleeval - a fixed,
-  enumerated whitelist of operations, same reasoning as the original
-  simpleeval choice). `field` can reference the call itself
-  (`tool_name`, `agent_id`) as well as `arguments.*`, and conditions can
-  now express OR/AND/NOT logic across multiple fields - "block if amount
-  is huge OR the account is on a flagged list" wasn't expressible as one
-  simpleeval string before this.
-- **Fully backward compatible.** The original `condition` string field
-  still works exactly as before - `policy_engine.py` tries
-  `condition_dsl` first and falls back to the legacy string. Nothing that
-  shipped in Weeks 1-8 broke; only the seeded `high-value-transfer`
-  policy was migrated to the new format, as the flagship example.
-- **Validated at save time, not match time.** `POST`/`PATCH
-  /api/v1/policies` now reject a malformed `condition_dsl` with a 400 and
-  a specific reason immediately - an admin never saves a policy that
-  silently never matches anything.
-- **`POST /api/v1/policies/simulate`** - a dry-run endpoint: give it a
-  hypothetical `tool_name`/`agent_id`/`arguments`, get back the decision
-  the real pipeline would make, with zero data persisted. The dashboard's
-  Policies tab now has a "test a call" panel built on this, so you can
-  check a policy actually does what you meant before an agent hits it for
-  real.
-- **31 new backend tests** covering the DSL evaluator directly (every op,
-  nested combinators, malformed-input rejection), the DSL driving a real
-  decision end-to-end through the events API, the legacy string path
-  still working, and the simulate endpoint (86 backend tests total now).
+- **`support_agent/`** - a customer-support agent, a deliberately
+  different domain from `demo_agent/`'s finance agent: `issue_refund`,
+  `close_ticket`, `escalate_to_manager` instead of balances and
+  transfers. It uses the exact same `Guardrail`/`session.call()` SDK
+  class, completely unmodified - adding a new agent to this system is
+  "write some tools + some policies," not "go touch the SDK or backend."
+- **Its own policy set**, seeded automatically: refunds over 2,000 need
+  approval, refunds over 20,000 are blocked outright as likely fraud
+  (two policies on the same tool, most-restrictive-wins), and closing a
+  VIP customer's ticket needs a human's sign-off - the last one a
+  `condition_dsl` comparing a *string* field (`tier == "VIP"`), a case
+  the legacy expression-string format handled far more awkwardly. No
+  policy targets `escalate_to_manager` at all, on purpose - it falls
+  through to the risk-engine safety net and gets a plain ALLOW, the same
+  "nobody's written a rule for this yet" case `block-user-deletion`'s
+  absence-of-a-policy scenario already covered for the finance agent.
+- **Seeding that works on an already-live database, not just a fresh
+  one.** `seed_default_policies`/`seed_demo_api_key` (Weeks 1 & 6) only
+  run on a completely empty table - fine for a first install, but the
+  Render deployment's tables are never empty. `seed_support_policies`/
+  `seed_support_api_key` upsert by name/agent_id instead, so they do the
+  right thing on every startup: create what's missing, touch nothing
+  that already exists. That's what actually gets the support agent
+  working on the live deployment too, not just `localhost`.
+- **11 new backend tests** (97 total) covering the new policies driving
+  real decisions end-to-end, and specifically that both new seed
+  functions are idempotent and never clobber an admin's edits.
 
-Previous weeks: a real GPT function-calling agent through the same SDK
-(Week 8), a 45-test pytest suite with CI on every push/PR (Week 7), API
-key auth for agents and real JWT dashboard login (Week 6), Docker
-(`docker-compose up --build`), measured benchmarks (`BENCHMARKS.md`), and
-a live deployment (`DEPLOYMENT.md`).
+Previous weeks: a structured policy DSL with `all`/`any`/`not` combinators
+and a dry-run `/policies/simulate` endpoint (Week 9), a real GPT
+function-calling agent through the same SDK (Week 8), a pytest suite with
+CI on every push/PR (Week 7), API key auth for agents and real JWT
+dashboard login (Week 6), Docker (`docker-compose up --build`), measured
+benchmarks (`BENCHMARKS.md`), and a live deployment (`DEPLOYMENT.md`).
 
-That closes out every item from the original "everything, including a
-real policy DSL" scope - see `Agent_Guardrail_Build_Plan.md` for what a
-next phase (multi-agent, anomaly detection) would look like if there's
-still runway before interviews.
+That's every item from the original build plan's stretch layer except
+RBAC, anomaly detection, and the (purely cosmetic) execution graph - see
+`Agent_Guardrail_Build_Plan.md` for what's left if there's still runway
+before interviews.
 
 ## Project layout
 
@@ -73,7 +73,7 @@ agent-guardrail/
     Dockerfile             Backend container (see comment re: build context)
     pytest.ini              Points pytest at backend/tests
     conftest.py              Shared fixtures: test DB reset+reseed, auth/agent headers
-    tests/                   45 tests: auth, events/policy pipeline, approvals, policies, keys
+    tests/                   97 tests: auth, events/policy pipeline, approvals, policies, keys, DSL
     app/
       policy_engine.py      Evaluates configured policies against a tool call
       policy_dsl.py            Week 9: structured condition tree (AST + evaluator)
@@ -82,8 +82,8 @@ agent-guardrail/
       decision_engine.py     Combines policy + risk into one final decision
       security.py             Password hashing (bcrypt), API key gen, JWT encode/decode
       auth.py                  FastAPI dependencies: require_agent (API key), require_user (JWT)
-      seed_policies.py       Seeds 2 default policies on first run
-      seed_admin.py            Seeds 1 admin login + 1 demo API key on first run
+      seed_policies.py       Seeds default + (Week 10) support-agent policies
+      seed_admin.py            Seeds admin login + demo API keys (finance + support agents)
       routers/events.py      POST tool call -> decision (API key); GET events (login)
       routers/policies.py    CRUD + /simulate dry-run for policies (all routes require login)
       routers/approvals.py   List/approve/deny (login) + by-event poll (API key)
@@ -94,6 +94,9 @@ agent-guardrail/
     finance_agent.py        Week 1: hardcoded call sequence, proves the interception path
     openai_agent.py          Week 8: real GPT function-calling agent, same SDK/backend
     test_openai_agent.py    Mocked tests for the tool-calling <-> Guardrail wiring
+  support_agent/          Week 10: second demo agent, a different domain (customer support)
+    tools.py                 issue_refund, close_ticket, escalate_to_manager
+    support_agent.py          Hardcoded call sequence, same SDK class as finance_agent.py
   frontend/               Vite + React dashboard (Overview, Approvals, Traces, Policies)
     Dockerfile             Multi-stage: Vite build -> nginx static serve
   scripts/start_dev.py    Local dev launcher (backend, SQLite by default)
@@ -115,9 +118,10 @@ pip install -r requirements.txt
 python scripts/start_dev.py
 ```
 
-On first startup the backend seeds exactly one admin login and one demo
-API key, and prints both to the console **once** (only a hash is stored
-after that - same as it would be for a real deployment):
+On first startup the backend seeds an admin login and a demo API key for
+each demo agent (finance + support, Week 10), printing each to the
+console **once** (only a hash is stored after that - same as it would be
+for a real deployment):
 
 ```
 [guardrail] Seeded the first dashboard login:
@@ -126,10 +130,13 @@ after that - same as it would be for a real deployment):
 ...
 [guardrail] Seeded a demo API key for agent_id='finance-agent':
 [guardrail]   gk_...
+...
+[guardrail] Seeded a demo API key for agent_id='support-agent':
+[guardrail]   gk_...
 ```
 
-Save both - the dashboard login is how you sign into the UI below, and the
-API key is what the demo agent needs to authenticate as `finance-agent`.
+Save all three - the dashboard login is how you sign into the UI below,
+and each API key is what that demo agent needs to authenticate.
 
 ```bash
 # terminal 2: the dashboard
@@ -203,6 +210,28 @@ cd demo_agent
 PYTHONPATH=../sdk pytest test_openai_agent.py -v
 ```
 
+## Running the support agent (Week 10)
+
+The second demo agent - proves the same SDK/backend works for a
+completely different domain, not just finance. Its API key and policies
+are seeded automatically alongside the finance agent's (see above), so
+there's nothing extra to set up.
+
+```bash
+# terminal 3 (instead of, or in addition to, the others)
+cd support_agent
+# PowerShell:
+$env:PYTHONPATH="..\sdk"
+$env:GUARDRAIL_API_KEY="gk_..."   # the seeded support-agent key from terminal 1's output
+python support_agent.py
+```
+
+Walks through all three outcomes again, in a different domain: escalating
+a ticket is allowed outright (no policy targets it), a mid-size refund
+pauses for approval, and a refund over 20,000 is blocked as likely fraud -
+approve the pending one from the dashboard's Approval Queue the same way
+you would for the finance agent, and watch terminal 3 unblock.
+
 ## Running the tests
 
 ```bash
@@ -211,7 +240,7 @@ cd backend
 pytest -v
 ```
 
-All 45 tests run against a throwaway SQLite file (`conftest.py` points
+All 97 tests run against a throwaway SQLite file (`conftest.py` points
 `DATABASE_URL` at one before anything else imports), reset to a clean,
 identically-seeded schema before every test - no shared state between
 tests, no dependency on execution order, no need for a real Postgres
@@ -410,3 +439,25 @@ a public URL (Render, or any Docker-based host) instead of just localhost.
   same `run_pipeline()` - a "test mode" that quietly runs slightly
   different logic than production is worse than no test mode, because it
   can pass while the real path is broken (or vice versa).
+- **The second demo agent is the actual proof, not the auth/tests/DSL
+  weeks (Week 10).** Weeks 6-9 all made the *existing* finance agent
+  more solid; none of them tested whether the system generalizes. Adding
+  `support_agent/` - a different domain, different tools, different
+  policies - with zero changes to `backend/` or `sdk/` is what actually
+  answers "is this reusable infrastructure or a demo built around one
+  agent's shape." It's a cheap way to expose a coupling bug if one
+  exists (e.g. a policy field name the finance domain happened to always
+  provide that the engine silently assumed), and here it didn't find
+  one - which is itself the result worth being able to state plainly in
+  an interview, not just claim.
+- **Two different seeding strategies, on purpose, not by accident (Week
+  10).** `seed_default_policies`/`seed_demo_api_key` (Weeks 1 & 6) check
+  "is the whole table empty" - correct for a one-time bootstrap on a
+  brand-new database, wrong for adding something new to a database
+  that's already been running in production for weeks. `seed_support_
+  policies`/`seed_support_api_key` check "does this specific named thing
+  already exist" instead - safe to call unconditionally on every single
+  startup, forever, because it's naturally idempotent per item rather
+  than gated by a one-time table-level check. Knowing which of the two
+  patterns a given migration/seed needs - and that they're not
+  interchangeable - is a real production concern, not a toy-project one.

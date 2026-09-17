@@ -9,6 +9,16 @@ GUARDRAIL_ADMIN_PASSWORD); otherwise a random password is generated and
 printed to the console ONCE. Same idea for the demo API key: printed once,
 because - same as the real thing - it's stored only as a hash after that
 and cannot be recovered.
+
+Week 10: `seed_support_api_key()` mints a second demo key, for
+support_agent/'s agent_id="support-agent". Checked per-agent_id, not
+"only if the api_keys table is empty" like `seed_demo_api_key` above -
+the already-live deployment's table is never empty (it already has the
+finance-agent key plus anything minted since), so an empty-table check
+would never fire there and support_agent would have no way to
+authenticate against production. Per-agent_id means it's safe to run on
+every startup: does nothing if a support-agent key already exists,
+mints one if it doesn't.
 """
 import os
 import secrets
@@ -57,4 +67,20 @@ def seed_demo_api_key(db: Session) -> None:
     print("[guardrail] Seeded a demo API key for agent_id='finance-agent':")
     print(f"[guardrail]   {raw_key}")
     print("[guardrail]   (only shown once - use this in demo_agent's Guardrail(api_key=...))")
+    print("=" * 72)
+
+
+def seed_support_api_key(db: Session) -> None:
+    existing = db.execute(select(ApiKey.id).where(ApiKey.agent_id == "support-agent").limit(1)).first()
+    if existing:
+        return
+
+    raw_key, key_hash = generate_api_key()
+    db.add(ApiKey(agent_id="support-agent", label="support demo agent (seeded)", key_hash=key_hash))
+    db.commit()
+
+    print("=" * 72)
+    print("[guardrail] Seeded a demo API key for agent_id='support-agent':")
+    print(f"[guardrail]   {raw_key}")
+    print("[guardrail]   (only shown once - use this in support_agent's Guardrail(api_key=...))")
     print("=" * 72)
