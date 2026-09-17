@@ -18,12 +18,16 @@ activity against the deployed backend.
 Full architecture and phased plan: see `Agent_Guardrail_Build_Plan.md` and
 `Agent_Guardrail_Project_Proposal.docx` in this folder.
 
-## Status: Week 11 — RBAC: Admin / Approver / Viewer roles
+## Status: Week 11 — RBAC: Admin / Approver / Viewer roles, plus a fixed migration gap
 
 Everything from Weeks 1-10, plus real role-based access control on top of
 the JWT login that's existed since Week 6 - one flat admin account
 replaced with three roles, each genuinely restricted server-side, not
-just hidden in the UI.
+just hidden in the UI. Also includes a same-week fix for a real
+production incident this update caused - see the last bullet under
+"Design notes" below for the full story - so `migrations.py` now handles
+both `users.role` (Week 11) and the `policies.condition_dsl` column that
+had been silently missing since Week 9.
 
 - **Three roles.** VIEWER: read-only everywhere (events, approvals,
   policies, keys). APPROVER: VIEWER + can approve/deny. ADMIN: APPROVER +
@@ -55,7 +59,7 @@ just hidden in the UI.
   tab (ADMIN-only) to create accounts, change roles, and remove users;
   Approve/Deny, policy create/edit/delete, and API key mint/revoke all
   hide for roles that can't use them.
-- **34 new backend tests** (131 total): the full ADMIN/APPROVER/VIEWER
+- **34 new backend tests** (133 total): the full ADMIN/APPROVER/VIEWER
   permission matrix across every router, the user-management safety
   checks, and - separately - the migration itself, exercised against a
   hand-built pre-RBAC-shaped table the same way the sandbox smoke test
@@ -84,7 +88,7 @@ agent-guardrail/
     Dockerfile             Backend container (see comment re: build context)
     pytest.ini              Points pytest at backend/tests
     conftest.py              Shared fixtures: test DB reset+reseed, auth/agent headers
-    tests/                   131 tests: auth, RBAC, migrations, events/policy pipeline, approvals, policies, keys, DSL
+    tests/                   133 tests: auth, RBAC, migrations, events/policy pipeline, approvals, policies, keys, DSL
     app/
       policy_engine.py      Evaluates configured policies against a tool call
       policy_dsl.py            Week 9: structured condition tree (AST + evaluator)
@@ -259,7 +263,7 @@ cd backend
 pytest -v
 ```
 
-All 131 tests run against a throwaway SQLite file (`conftest.py` points
+All 133 tests run against a throwaway SQLite file (`conftest.py` points
 `DATABASE_URL` at one before anything else imports), reset to a clean,
 identically-seeded schema before every test - no shared state between
 tests, no dependency on execution order, no need for a real Postgres
@@ -507,3 +511,34 @@ a public URL (Render, or any Docker-based host) instead of just localhost.
   same shape, before ever touching the real thing. Test effort should
   track blast radius, not lines of code or how interesting a module was
   to write.
+- **A real production incident: `migrations.py` itself had a gap, and it
+  took down every deploy for two weeks straight.** `Policy.condition_dsl`
+  was added to the model back in Week 9, but no migration was written for
+  it - `migrations.py` at the time only knew about `users.role`. It went
+  unnoticed through Week 9's own deploy because nothing at startup wrote
+  to that column yet (`seed_default_policies` only runs against an empty
+  table, which the live one wasn't). It surfaced the moment Week 10
+  shipped `seed_support_policies()` - which does insert `condition_dsl`
+  on every startup - and every Render deploy from Week 10 through Week 11
+  failed at startup with `column "condition_dsl" of relation "policies"
+  does not exist`, silently leaving the live backend stuck on Week 9's
+  code while the frontend had already deployed ahead of it. Caught by
+  checking the Render backend's Deploys tab directly rather than assuming
+  a successful frontend deploy meant the whole system was current - the
+  fix generalized `_ensure_column()` from a single hardcoded call into a
+  short list, added the missing `condition_dsl` entry, and added a
+  regression test (`test_reproduces_the_actual_production_failure` in
+  `test_migrations.py`) that performs the exact `INSERT` that crashed
+  production, against a hand-built table shaped like the pre-migration
+  live one, so this specific failure can't silently reappear. One more
+  wrinkle worth knowing cold: the redeployed fix's logs showed only the
+  `condition_dsl` migration line, not `users.role` - not a bug. The
+  earlier *failed* Week 11 deploy had still gotten far enough to run
+  `ALTER TABLE users ADD COLUMN role`, which commits in its own
+  transaction, before crashing later at the policy-seeding step; a
+  "failed" deploy on Render means the process didn't stay up, not that
+  nothing it did took effect. The actual lesson isn't "write more
+  migrations" - it's that a migration step's side effects outlive the
+  process that ran it, so idempotency (`_ensure_column`'s own "does
+  nothing if already present" check) isn't optional, it's what makes a
+  retried deploy safe at all.

@@ -91,13 +91,25 @@ by itself (see its docstring and `README.md`'s Week 11 design notes for
 why this isn't Alembic). Just redeploy normally and check the logs for:
 
 ```
-[guardrail] migrated: added users.role column (existing users default to ADMIN)
+[guardrail] migrated: added users.role
 ```
 
 If you see that line, the existing admin login still works exactly as
 before, now with the ADMIN role. If the `users` table was already empty
 (a fresh deployment), you won't see that line at all - there was nothing
 to migrate, `create_all()` created the table with `role` already correct.
+The same applies to `policies.condition_dsl` (added after a real
+production incident - see README) - you'll see
+`[guardrail] migrated: added policies.condition_dsl` once, on whichever
+deploy is the first to run the fixed `migrations.py` against a live
+database, and never again after that.
+
+**A deploy marked "Failed" on Render can still have partially altered the
+database.** `_ensure_column()`'s `ALTER TABLE` commits in its own
+transaction immediately, separately from whatever crashes later in that
+same startup run - this is exactly what happened here (see README). If a
+deploy fails, don't assume the database is untouched; check the logs for
+which `[guardrail] migrated: ...` lines did print before the crash.
 
 ## What NOT to do
 
