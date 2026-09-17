@@ -41,12 +41,13 @@ def seed_admin_user(db: Session) -> None:
     if generated:
         password = secrets.token_urlsafe(12)
 
-    db.add(User(username=username, password_hash=hash_password(password)))
+    db.add(User(username=username, password_hash=hash_password(password), role="ADMIN"))
     db.commit()
 
     print("=" * 72)
     print("[guardrail] Seeded the first dashboard login:")
     print(f"[guardrail]   username: {username}")
+    print("[guardrail]   role: ADMIN")
     if generated:
         print(f"[guardrail]   password: {password}  (generated - save this, it won't be shown again)")
     else:

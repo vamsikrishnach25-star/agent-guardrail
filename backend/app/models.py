@@ -120,18 +120,30 @@ class Approval(Base):
     decided_at = Column(DateTime(timezone=True), nullable=True)
 
 
+VALID_ROLES = {"ADMIN", "APPROVER", "VIEWER"}
+
+
 class User(Base):
     """A human who can log into the dashboard and act on approvals. Deciding
     who approved/denied a REQUIRE_APPROVAL action now comes from this table
     (via the JWT session) instead of a free-text field the caller supplies -
     see routers/approvals.py. That's the whole point of adding this: an
     audit trail that trusts a client-supplied string isn't really an audit
-    trail."""
+    trail.
+
+    Week 11: `role` adds RBAC on top of the JWT session that already
+    existed - VIEWER (read-only everywhere), APPROVER (VIEWER + can
+    approve/deny), ADMIN (APPROVER + can manage policies, API keys, and
+    other users). See auth.py's require_role/require_admin/require_approver
+    and migrations.py for how this column got added to a `users` table
+    that, on the live deployment, already had rows in it before this
+    column existed."""
     __tablename__ = "users"
 
     id = Column(String, primary_key=True, default=_uuid)
     username = Column(String, unique=True, index=True, nullable=False)
     password_hash = Column(String, nullable=False)
+    role = Column(String, nullable=False, default="ADMIN")
 
     created_at = Column(DateTime(timezone=True), default=_now, nullable=False)
 

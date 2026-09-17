@@ -8,10 +8,13 @@ Week 6: API key management for agents.
                                      keys)
     POST   /api/v1/keys/{id}/revoke - revoke a key immediately
 
-Gated by the same dashboard login as everything else here (`require_user`) -
-there's deliberately no separate "admin" credential type. Minting an agent
-credential is exactly the kind of action that should require a logged-in
-human, same as approving a transfer.
+Gated by the same dashboard login as everything else here - there's
+deliberately no separate "admin" credential type distinct from the RBAC
+role. Minting/revoking an agent credential requires the ADMIN role
+(`require_admin`, Week 11) - it's a privileged action with real blast
+radius if handed out carelessly. Listing stays open to any logged-in
+role (VIEWER included): seeing which keys exist, masked, isn't sensitive
+the way minting or revoking one is.
 """
 from datetime import datetime, timezone
 
@@ -19,7 +22,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..auth import require_user
+from ..auth import require_admin, require_user
 from ..database import get_db
 from ..models import ApiKey, User
 from ..schemas import ApiKeyCreatedOut, ApiKeyIn, ApiKeyOut
@@ -50,7 +53,7 @@ def list_keys(db: Session = Depends(get_db), _user: User = Depends(require_user)
 
 
 @router.post("", response_model=ApiKeyCreatedOut)
-def create_key(key_in: ApiKeyIn, db: Session = Depends(get_db), _user: User = Depends(require_user)):
+def create_key(key_in: ApiKeyIn, db: Session = Depends(get_db), _user: User = Depends(require_admin)):
     raw_key, key_hash = generate_api_key()
     key = ApiKey(agent_id=key_in.agent_id, label=key_in.label, key_hash=key_hash)
     db.add(key)
@@ -60,7 +63,7 @@ def create_key(key_in: ApiKeyIn, db: Session = Depends(get_db), _user: User = De
 
 
 @router.post("/{key_id}/revoke", response_model=ApiKeyOut)
-def revoke_key(key_id: str, db: Session = Depends(get_db), _user: User = Depends(require_user)):
+def revoke_key(key_id: str, db: Session = Depends(get_db), _user: User = Depends(require_admin)):
     key = db.get(ApiKey, key_id)
     if not key:
         raise HTTPException(status_code=404, detail="key not found")

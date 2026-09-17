@@ -71,6 +71,33 @@ def auth_headers(client):
     return {"Authorization": f"Bearer {token}"}
 
 
+def _create_and_login(client, auth_headers, username: str, role: str) -> dict:
+    """Week 11: admin creates a user with a given role, then that user logs
+    in for their own session - the only way to get a non-admin session,
+    since there's no self-registration."""
+    resp = client.post(
+        "/api/v1/users",
+        json={"username": username, "password": "testpass123", "role": role},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    login = client.post("/api/v1/auth/login", json={"username": username, "password": "testpass123"})
+    assert login.status_code == 200, login.text
+    return {"Authorization": f"Bearer {login.json()['access_token']}"}
+
+
+@pytest.fixture()
+def approver_headers(client, auth_headers):
+    """A logged-in session for a freshly created APPROVER user."""
+    return _create_and_login(client, auth_headers, "testapprover", "APPROVER")
+
+
+@pytest.fixture()
+def viewer_headers(client, auth_headers):
+    """A logged-in session for a freshly created VIEWER user."""
+    return _create_and_login(client, auth_headers, "testviewer", "VIEWER")
+
+
 @pytest.fixture()
 def agent_api_key(db):
     """Creates one API key scoped to agent_id='test-agent' directly in the

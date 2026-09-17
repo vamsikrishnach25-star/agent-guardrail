@@ -18,49 +18,60 @@ activity against the deployed backend.
 Full architecture and phased plan: see `Agent_Guardrail_Build_Plan.md` and
 `Agent_Guardrail_Project_Proposal.docx` in this folder.
 
-## Status: Week 10 — a second demo agent, proving this isn't finance-only
+## Status: Week 11 — RBAC: Admin / Approver / Viewer roles
 
-Everything from Weeks 1-9, plus the thing every one of those weeks was
-implicitly betting on: that Guardrail is genuinely reusable infrastructure,
-not something quietly shaped around one agent's tools.
+Everything from Weeks 1-10, plus real role-based access control on top of
+the JWT login that's existed since Week 6 - one flat admin account
+replaced with three roles, each genuinely restricted server-side, not
+just hidden in the UI.
 
-- **`support_agent/`** - a customer-support agent, a deliberately
-  different domain from `demo_agent/`'s finance agent: `issue_refund`,
-  `close_ticket`, `escalate_to_manager` instead of balances and
-  transfers. It uses the exact same `Guardrail`/`session.call()` SDK
-  class, completely unmodified - adding a new agent to this system is
-  "write some tools + some policies," not "go touch the SDK or backend."
-- **Its own policy set**, seeded automatically: refunds over 2,000 need
-  approval, refunds over 20,000 are blocked outright as likely fraud
-  (two policies on the same tool, most-restrictive-wins), and closing a
-  VIP customer's ticket needs a human's sign-off - the last one a
-  `condition_dsl` comparing a *string* field (`tier == "VIP"`), a case
-  the legacy expression-string format handled far more awkwardly. No
-  policy targets `escalate_to_manager` at all, on purpose - it falls
-  through to the risk-engine safety net and gets a plain ALLOW, the same
-  "nobody's written a rule for this yet" case `block-user-deletion`'s
-  absence-of-a-policy scenario already covered for the finance agent.
-- **Seeding that works on an already-live database, not just a fresh
-  one.** `seed_default_policies`/`seed_demo_api_key` (Weeks 1 & 6) only
-  run on a completely empty table - fine for a first install, but the
-  Render deployment's tables are never empty. `seed_support_policies`/
-  `seed_support_api_key` upsert by name/agent_id instead, so they do the
-  right thing on every startup: create what's missing, touch nothing
-  that already exists. That's what actually gets the support agent
-  working on the live deployment too, not just `localhost`.
-- **11 new backend tests** (97 total) covering the new policies driving
-  real decisions end-to-end, and specifically that both new seed
-  functions are idempotent and never clobber an admin's edits.
+- **Three roles.** VIEWER: read-only everywhere (events, approvals,
+  policies, keys). APPROVER: VIEWER + can approve/deny. ADMIN: APPROVER +
+  can manage policies, API keys, and other users' accounts. Enforced by
+  `require_role()`/`require_admin`/`require_approver` (`auth.py`) wrapping
+  the existing `require_user` - every dashboard route still needs a valid
+  session first; role only narrows what a valid session can do.
+- **`POST/GET /api/v1/users`, `PATCH /{id}/role`, `DELETE /{id}`** -
+  admin-only account management (`routers/users.py`). No self-
+  registration, same as login itself - accounts are provisioned by an
+  admin. Two safety checks: you can't delete your own account, and you
+  can't delete or demote the *last* remaining admin (either would risk
+  locking the whole system out of ever having an admin again).
+- **A real schema migration on an already-live database.** Adding
+  `User.role` is the first time this project has changed the shape of a
+  table that already has rows in it on the live Render deployment -
+  `Base.metadata.create_all()` (used since Week 1) only creates tables
+  that don't exist yet, it never alters an existing one. `migrations.py`
+  is a small, hand-rolled, idempotent "add the column if it's missing"
+  check that runs before `create_all()`; existing users default to ADMIN
+  on migration, preserving exactly the access they already had rather
+  than silently downgrading them. Verified in a sandbox against a sqlite
+  file built to look exactly like the pre-migration live database
+  (old-shape `users` table, one existing row, no `role` column) before
+  ever touching the real deployment.
+- **Role-aware dashboard UI**, but the UI hiding a button was never the
+  actual security boundary - the backend enforces every restriction
+  independently regardless of what the frontend shows. A new **Users**
+  tab (ADMIN-only) to create accounts, change roles, and remove users;
+  Approve/Deny, policy create/edit/delete, and API key mint/revoke all
+  hide for roles that can't use them.
+- **34 new backend tests** (131 total): the full ADMIN/APPROVER/VIEWER
+  permission matrix across every router, the user-management safety
+  checks, and - separately - the migration itself, exercised against a
+  hand-built pre-RBAC-shaped table the same way the sandbox smoke test
+  was, so the riskiest part of this week has direct test coverage, not
+  just a one-off manual check.
 
-Previous weeks: a structured policy DSL with `all`/`any`/`not` combinators
-and a dry-run `/policies/simulate` endpoint (Week 9), a real GPT
+Previous weeks: a second demo agent proving Guardrail isn't finance-only
+(Week 10), a structured policy DSL with `all`/`any`/`not` combinators and
+a dry-run `/policies/simulate` endpoint (Week 9), a real GPT
 function-calling agent through the same SDK (Week 8), a pytest suite with
 CI on every push/PR (Week 7), API key auth for agents and real JWT
 dashboard login (Week 6), Docker (`docker-compose up --build`), measured
 benchmarks (`BENCHMARKS.md`), and a live deployment (`DEPLOYMENT.md`).
 
 That's every item from the original build plan's stretch layer except
-RBAC, anomaly detection, and the (purely cosmetic) execution graph - see
+anomaly detection and the (purely cosmetic) execution graph - see
 `Agent_Guardrail_Build_Plan.md` for what's left if there's still runway
 before interviews.
 
@@ -73,7 +84,7 @@ agent-guardrail/
     Dockerfile             Backend container (see comment re: build context)
     pytest.ini              Points pytest at backend/tests
     conftest.py              Shared fixtures: test DB reset+reseed, auth/agent headers
-    tests/                   97 tests: auth, events/policy pipeline, approvals, policies, keys, DSL
+    tests/                   131 tests: auth, RBAC, migrations, events/policy pipeline, approvals, policies, keys, DSL
     app/
       policy_engine.py      Evaluates configured policies against a tool call
       policy_dsl.py            Week 9: structured condition tree (AST + evaluator)
@@ -81,14 +92,16 @@ agent-guardrail/
       risk_engine.py         Additive risk scoring (0-100 -> LOW/MEDIUM/HIGH/CRITICAL)
       decision_engine.py     Combines policy + risk into one final decision
       security.py             Password hashing (bcrypt), API key gen, JWT encode/decode
-      auth.py                  FastAPI dependencies: require_agent (API key), require_user (JWT)
+      auth.py                  FastAPI deps: require_agent/require_user + (Week 11) require_admin/require_approver
+      migrations.py             Week 11: tiny hand-rolled startup migration (adds users.role safely)
       seed_policies.py       Seeds default + (Week 10) support-agent policies
-      seed_admin.py            Seeds admin login + demo API keys (finance + support agents)
+      seed_admin.py            Seeds admin login (role=ADMIN) + demo API keys (finance + support agents)
       routers/events.py      POST tool call -> decision (API key); GET events (login)
-      routers/policies.py    CRUD + /simulate dry-run for policies (all routes require login)
-      routers/approvals.py   List/approve/deny (login) + by-event poll (API key)
-      routers/auth.py          POST /auth/login -> JWT; GET /auth/me
-      routers/keys.py          Mint/list/revoke agent API keys (requires login)
+      routers/policies.py    CRUD (ADMIN) + /simulate dry-run (any role) for policies
+      routers/approvals.py   List (any role) + approve/deny (APPROVER/ADMIN) + by-event poll (API key)
+      routers/auth.py          POST /auth/login -> JWT; GET /auth/me (includes role)
+      routers/keys.py          List (any role); mint/revoke (ADMIN)
+      routers/users.py          Week 11: create/list/change-role/delete users (ADMIN only)
   sdk/guardrail_sdk/      The Guardrail SDK agents import to call tools through
   demo_agent/             Toy finance agent + tools used to exercise the system
     finance_agent.py        Week 1: hardcoded call sequence, proves the interception path
@@ -126,6 +139,7 @@ for a real deployment):
 ```
 [guardrail] Seeded the first dashboard login:
 [guardrail]   username: admin
+[guardrail]   role: ADMIN
 [guardrail]   password: <random>
 ...
 [guardrail] Seeded a demo API key for agent_id='finance-agent':
@@ -136,7 +150,12 @@ for a real deployment):
 ```
 
 Save all three - the dashboard login is how you sign into the UI below,
-and each API key is what that demo agent needs to authenticate.
+and each API key is what that demo agent needs to authenticate. The
+seeded account is ADMIN, so once you're in, the **Users** tab lets you
+create APPROVER/VIEWER accounts to try out RBAC (Week 11) - log in as one
+in a second browser/incognito window and watch the Approve/Deny buttons
+and edit controls disappear for VIEWER, or stay for APPROVER but the
+Policies/Keys/Users edit controls still don't.
 
 ```bash
 # terminal 2: the dashboard
@@ -240,7 +259,7 @@ cd backend
 pytest -v
 ```
 
-All 97 tests run against a throwaway SQLite file (`conftest.py` points
+All 131 tests run against a throwaway SQLite file (`conftest.py` points
 `DATABASE_URL` at one before anything else imports), reset to a clean,
 identically-seeded schema before every test - no shared state between
 tests, no dependency on execution order, no need for a real Postgres
@@ -461,3 +480,30 @@ a public URL (Render, or any Docker-based host) instead of just localhost.
   than gated by a one-time table-level check. Knowing which of the two
   patterns a given migration/seed needs - and that they're not
   interchangeable - is a real production concern, not a toy-project one.
+- **Authorization is a wrapper around authentication, not a rewrite of it
+  (Week 11).** `require_role()` calls `require_user` as its own
+  dependency and only adds a check on top - it doesn't reimplement
+  "is this JWT valid." Every route that used to require *a* login now
+  requires *the right kind of* login, but the actual session-validation
+  code path is exactly the one thing Week 6 already built and this week
+  didn't touch. Layering new authorization on unchanged authentication,
+  instead of rewriting both together, is what kept this a same-day
+  change instead of a multi-day one.
+- **403, not 401, for a valid session with the wrong role.** 401 means
+  "who are you" - your credentials didn't establish who's asking. 403
+  means "I know who you are, and the answer is no." A VIEWER hitting
+  `POST /policies` has a perfectly valid session; the problem is
+  entirely about what that session is allowed to do. Conflating the two
+  (or, worse, always returning 401) would make a client's own retry/
+  refresh logic do the wrong thing - re-authenticating a VIEWER doesn't
+  turn them into an ADMIN.
+- **The riskiest line of code this week has the most direct test
+  coverage, not the most incidental.** `migrations.py` is nine lines,
+  but it's the one thing that could have taken the live deployment down
+  on the next push - a wrong migration is a 500 on every single request,
+  not a missing feature. It's the one module this week with tests built
+  around a hand-constructed "what does the live database actually look
+  like right now" fixture, plus a standalone sandbox run against that
+  same shape, before ever touching the real thing. Test effort should
+  track blast radius, not lines of code or how interesting a module was
+  to write.

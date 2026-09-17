@@ -109,8 +109,22 @@ class TokenOut(BaseModel):
 class UserOut(BaseModel):
     id: str
     username: str
+    role: str  # Week 11: ADMIN | APPROVER | VIEWER
 
     model_config = {"from_attributes": True}
+
+
+class UserCreateIn(BaseModel):
+    """Week 11: admin-only user provisioning - no self-registration, same
+    'accounts are provisioned, not signed up for' philosophy as LoginIn's
+    lack of a registration endpoint."""
+    username: str
+    password: str
+    role: str = "VIEWER"
+
+
+class UserRoleUpdateIn(BaseModel):
+    role: str
 
 
 class ApiKeyIn(BaseModel):

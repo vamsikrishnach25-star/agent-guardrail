@@ -6,12 +6,16 @@ import { usePolling } from "../usePolling.js";
 // without touching the backend directly. The raw key is shown exactly
 // once, right after creation - after that only a hash is stored, same as
 // GitHub/Stripe API keys, so this screen genuinely can't show it again.
-export default function ApiKeys() {
+export default function ApiKeys({ role }) {
   const keys = usePolling(() => api.listKeys(), 5000);
   const [agentId, setAgentId] = useState("");
   const [label, setLabel] = useState("");
   const [justCreated, setJustCreated] = useState(null);
   const [submitting, setSubmitting] = useState(false);
+  // Week 11: minting/revoking needs ADMIN - the backend enforces this
+  // independently (require_admin); this just hides controls that would
+  // 403 for a non-admin. Viewing masked keys stays available to every role.
+  const canManage = role === "ADMIN";
 
   const submit = async (e) => {
     e.preventDefault();
@@ -63,11 +67,15 @@ export default function ApiKeys() {
         </div>
       )}
 
-      <form onSubmit={submit} className="form-row">
-        <input placeholder="agent_id (e.g. finance-agent)" value={agentId} onChange={(e) => setAgentId(e.target.value)} required />
-        <input placeholder="label (optional)" value={label} onChange={(e) => setLabel(e.target.value)} />
-        <button className="btn" type="submit" disabled={submitting}>Create key</button>
-      </form>
+      {canManage ? (
+        <form onSubmit={submit} className="form-row">
+          <input placeholder="agent_id (e.g. finance-agent)" value={agentId} onChange={(e) => setAgentId(e.target.value)} required />
+          <input placeholder="label (optional)" value={label} onChange={(e) => setLabel(e.target.value)} />
+          <button className="btn" type="submit" disabled={submitting}>Create key</button>
+        </form>
+      ) : (
+        <p className="meta">Your role ({role}) can view keys but not mint or revoke them.</p>
+      )}
 
       {rows.length === 0 ? (
         <div className="empty-state">No API keys yet.</div>
@@ -84,7 +92,7 @@ export default function ApiKeys() {
                 <td><code>{k.key_preview}</code></td>
                 <td>{k.created_at ? new Date(k.created_at).toLocaleString() : ""}</td>
                 <td>{k.revoked_at ? <span className="badge badge-BLOCK">revoked</span> : <span className="badge badge-ALLOW">active</span>}</td>
-                <td>{!k.revoked_at && <button className="btn btn-deny" onClick={() => revoke(k)}>Revoke</button>}</td>
+                <td>{canManage && !k.revoked_at && <button className="btn btn-deny" onClick={() => revoke(k)}>Revoke</button>}</td>
               </tr>
             ))}
           </tbody>

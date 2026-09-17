@@ -17,13 +17,19 @@ specific reason immediately, instead of being saved and silently never
 matching anything. Also adds POST /simulate, a dry-run endpoint for
 testing a hypothetical call against the live policy set without creating
 a real event.
+
+Week 11: create/update/delete additionally require the ADMIN role
+(`require_admin`) - editing what every future call gets ALLOWED/BLOCKED/
+REQUIRE_APPROVAL for is exactly the kind of action RBAC exists to
+restrict. Listing and simulating stay open to any logged-in role (VIEWER
+included) - neither one changes anything.
 """
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .. import policy_dsl
-from ..auth import require_user
+from ..auth import require_admin, require_user
 from ..database import get_db
 from ..models import Policy, User
 from ..pipeline import run_pipeline
@@ -54,7 +60,7 @@ def simulate_policy(payload: PolicySimulateIn, db: Session = Depends(get_db), _u
 
 
 @router.post("", response_model=PolicyOut)
-def create_policy(policy_in: PolicyIn, db: Session = Depends(get_db), _user: User = Depends(require_user)):
+def create_policy(policy_in: PolicyIn, db: Session = Depends(get_db), _user: User = Depends(require_admin)):
     if policy_in.action not in VALID_ACTIONS:
         raise HTTPException(status_code=400, detail=f"action must be one of {VALID_ACTIONS}")
     _validate_condition_dsl(policy_in)
@@ -69,7 +75,7 @@ def create_policy(policy_in: PolicyIn, db: Session = Depends(get_db), _user: Use
 
 
 @router.patch("/{policy_id}", response_model=PolicyOut)
-def update_policy(policy_id: str, policy_in: PolicyIn, db: Session = Depends(get_db), _user: User = Depends(require_user)):
+def update_policy(policy_id: str, policy_in: PolicyIn, db: Session = Depends(get_db), _user: User = Depends(require_admin)):
     if policy_in.action not in VALID_ACTIONS:
         raise HTTPException(status_code=400, detail=f"action must be one of {VALID_ACTIONS}")
     _validate_condition_dsl(policy_in)
@@ -84,7 +90,7 @@ def update_policy(policy_id: str, policy_in: PolicyIn, db: Session = Depends(get
 
 
 @router.delete("/{policy_id}")
-def delete_policy(policy_id: str, db: Session = Depends(get_db), _user: User = Depends(require_user)):
+def delete_policy(policy_id: str, db: Session = Depends(get_db), _user: User = Depends(require_admin)):
     policy = db.get(Policy, policy_id)
     if not policy:
         raise HTTPException(status_code=404, detail="policy not found")

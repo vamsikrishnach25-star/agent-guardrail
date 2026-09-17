@@ -81,6 +81,24 @@ git push -u origin main
 4. Confirm the deployed dashboard shows the activity live. If it does,
    you have a genuinely deployed, working system - not just a local demo.
 
+## Redeploying after Week 11 (RBAC)
+
+This is the first update where the database's actual table shape changes
+on a deployment that already has real rows in it - a `role` column was
+added to `users`. Nothing extra to do: `migrations.py` runs automatically
+on startup, before anything else touches the database, and handles this
+by itself (see its docstring and `README.md`'s Week 11 design notes for
+why this isn't Alembic). Just redeploy normally and check the logs for:
+
+```
+[guardrail] migrated: added users.role column (existing users default to ADMIN)
+```
+
+If you see that line, the existing admin login still works exactly as
+before, now with the ADMIN role. If the `users` table was already empty
+(a fresh deployment), you won't see that line at all - there was nothing
+to migrate, `create_all()` created the table with `role` already correct.
+
 ## What NOT to do
 
 - Don't commit `DATABASE_URL`, API keys, or any secret into the repo -

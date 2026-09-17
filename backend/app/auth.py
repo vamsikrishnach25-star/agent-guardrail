@@ -10,13 +10,26 @@ Two credential types, two dependencies - never mixed:
                        can enforce "this key's agent_id must match the
                        event's agent_id".
 - `require_user`    - validates an `Authorization: Bearer <jwt>` header.
-                       Used on every dashboard-facing endpoint (list events,
-                       manage policies, list/approve/deny approvals, manage
-                       API keys). Returns the User row.
+                       Used on every dashboard-facing endpoint that just
+                       needs "someone is logged in" (viewing events,
+                       policies, approvals, keys). Returns the User row.
 
 Both raise 401 with a clear reason rather than letting a downstream KeyError
 or AttributeError surface - an auth layer that fails unpredictably is worse
 than one that's simply strict.
+
+Week 11 adds RBAC on top of `require_user`, not instead of it -
+`require_role(*roles)` wraps it with a role check, returning 403 (not
+401 - the session is valid, it just isn't permitted to do this) if the
+logged-in user's role isn't in the allowed set:
+
+- `require_approver` (ADMIN or APPROVER) - gates approve/deny.
+- `require_admin`    (ADMIN only)        - gates anything that changes
+                                            policies, API keys, or other
+                                            users' accounts.
+
+Every dashboard route still requires a valid session first; role only
+narrows what a valid session is allowed to do.
 """
 from fastapi import Depends, Header, HTTPException
 from sqlalchemy import select
@@ -64,3 +77,25 @@ def require_user(
         raise HTTPException(status_code=401, detail="user no longer exists")
 
     return user
+
+
+def require_role(*allowed_roles: str):
+    """Returns a dependency that requires require_user's result to also
+    have one of `allowed_roles`. A factory rather than one fixed
+    dependency so the same mechanism covers every role combination
+    (currently just require_admin/require_approver below) without a
+    separate hand-written function per combination."""
+
+    def _dependency(current_user: User = Depends(require_user)) -> User:
+        if current_user.role not in allowed_roles:
+            raise HTTPException(
+                status_code=403,
+                detail=f"this action requires role {sorted(allowed_roles)}, your role is '{current_user.role}'",
+            )
+        return current_user
+
+    return _dependency
+
+
+require_admin = require_role("ADMIN")
+require_approver = require_role("ADMIN", "APPROVER")

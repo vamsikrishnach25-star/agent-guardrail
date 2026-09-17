@@ -100,4 +100,15 @@ export const api = {
   createKey: (agentId, label) =>
     request("/api/v1/keys", { method: "POST", body: JSON.stringify({ agent_id: agentId, label }) }),
   revokeKey: (id) => request(`/api/v1/keys/${id}/revoke`, { method: "POST" }),
+
+  // Week 11: RBAC - who am I (including role), and admin-only user
+  // management. `me` is also how App.jsx learns the logged-in role right
+  // after login, since the login response itself doesn't include it.
+  me: () => request("/api/v1/auth/me"),
+  listUsers: () => request("/api/v1/users"),
+  createUser: (username, password, role) =>
+    request("/api/v1/users", { method: "POST", body: JSON.stringify({ username, password, role }) }),
+  updateUserRole: (id, role) =>
+    request(`/api/v1/users/${id}/role`, { method: "PATCH", body: JSON.stringify({ role }) }),
+  deleteUser: (id) => request(`/api/v1/users/${id}`, { method: "DELETE" }),
 };

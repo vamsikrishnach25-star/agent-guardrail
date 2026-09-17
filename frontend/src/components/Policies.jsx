@@ -29,10 +29,15 @@ function ConditionCell({ policy }) {
   return <span style={{ color: "var(--text-dim)" }}>always</span>;
 }
 
-export default function Policies() {
+export default function Policies({ role }) {
   const policies = usePolling(() => api.listPolicies(), 5000);
   const [form, setForm] = useState(EMPTY_FORM);
   const [submitting, setSubmitting] = useState(false);
+  // Week 11: creating/editing/deleting policies needs ADMIN - the backend
+  // enforces this independently (require_admin); this just keeps a
+  // non-admin from seeing controls that would 403. Simulating a call
+  // (below) stays available to every role - it doesn't change anything.
+  const canEdit = role === "ADMIN";
 
   const [sim, setSim] = useState(EMPTY_SIM);
   const [simResult, setSimResult] = useState(null);
@@ -133,26 +138,30 @@ export default function Policies() {
         not both are required, and existing policies using the string form keep working unchanged.
       </p>
 
-      <form onSubmit={submit} className="form-row" style={{ flexWrap: "wrap" }}>
-        <input placeholder="name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
-        <input placeholder="tool_name" value={form.tool_name} onChange={(e) => setForm({ ...form, tool_name: e.target.value })} required />
-        <input placeholder="condition (legacy, e.g. amount > 5000)" value={form.condition} onChange={(e) => setForm({ ...form, condition: e.target.value })} style={{ minWidth: 220 }} />
-        <select value={form.action} onChange={(e) => setForm({ ...form, action: e.target.value })}>
-          <option value="ALLOW">ALLOW</option>
-          <option value="BLOCK">BLOCK</option>
-          <option value="REQUIRE_APPROVAL">REQUIRE_APPROVAL</option>
-        </select>
-        <input type="number" placeholder="priority" value={form.priority} onChange={(e) => setForm({ ...form, priority: e.target.value })} style={{ width: 80 }} />
-        <button className="btn" type="submit" disabled={submitting}>Add policy</button>
+      {canEdit ? (
+        <form onSubmit={submit} className="form-row" style={{ flexWrap: "wrap" }}>
+          <input placeholder="name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
+          <input placeholder="tool_name" value={form.tool_name} onChange={(e) => setForm({ ...form, tool_name: e.target.value })} required />
+          <input placeholder="condition (legacy, e.g. amount > 5000)" value={form.condition} onChange={(e) => setForm({ ...form, condition: e.target.value })} style={{ minWidth: 220 }} />
+          <select value={form.action} onChange={(e) => setForm({ ...form, action: e.target.value })}>
+            <option value="ALLOW">ALLOW</option>
+            <option value="BLOCK">BLOCK</option>
+            <option value="REQUIRE_APPROVAL">REQUIRE_APPROVAL</option>
+          </select>
+          <input type="number" placeholder="priority" value={form.priority} onChange={(e) => setForm({ ...form, priority: e.target.value })} style={{ width: 80 }} />
+          <button className="btn" type="submit" disabled={submitting}>Add policy</button>
 
-        <textarea
-          placeholder={'condition_dsl (JSON, optional) - e.g. {"field": "arguments.amount", "op": "gt", "value": 5000}'}
-          value={form.conditionDsl}
-          onChange={(e) => setForm({ ...form, conditionDsl: e.target.value })}
-          rows={2}
-          style={{ width: "100%", fontFamily: "monospace", fontSize: 12, marginTop: 8 }}
-        />
-      </form>
+          <textarea
+            placeholder={'condition_dsl (JSON, optional) - e.g. {"field": "arguments.amount", "op": "gt", "value": 5000}'}
+            value={form.conditionDsl}
+            onChange={(e) => setForm({ ...form, conditionDsl: e.target.value })}
+            rows={2}
+            style={{ width: "100%", fontFamily: "monospace", fontSize: 12, marginTop: 8 }}
+          />
+        </form>
+      ) : (
+        <p className="meta">Your role ({role}) can view policies but not create, edit, or delete them.</p>
+      )}
 
       {rows.length === 0 ? (
         <div className="empty-state">No policies yet.</div>
@@ -165,14 +174,14 @@ export default function Policies() {
             {rows.map((p) => (
               <tr key={p.id}>
                 <td>
-                  <input type="checkbox" className="toggle" checked={p.enabled} onChange={() => toggle(p)} />
+                  <input type="checkbox" className="toggle" checked={p.enabled} disabled={!canEdit} onChange={() => toggle(p)} />
                 </td>
                 <td>{p.name}</td>
                 <td>{p.tool_name}</td>
                 <td><ConditionCell policy={p} /></td>
                 <td><span className={`badge badge-${p.action}`}>{p.action}</span></td>
                 <td>{p.priority}</td>
-                <td><button className="btn" onClick={() => remove(p)}>Delete</button></td>
+                <td>{canEdit && <button className="btn" onClick={() => remove(p)}>Delete</button>}</td>
               </tr>
             ))}
           </tbody>

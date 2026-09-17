@@ -21,6 +21,10 @@ agent can't poll another agent's pending approvals. Everything else here
 (listing the queue, approving, denying) is a human action from the
 dashboard, so it requires a logged-in user instead. `decided_by` is no
 longer something the caller types in - it's the authenticated username.
+
+Week 11: approve/deny additionally require the APPROVER or ADMIN role
+(`require_approver`) - a VIEWER can watch the queue but not act on it.
+Listing stays open to any logged-in role; deciding is the privileged part.
 """
 from datetime import datetime, timezone
 
@@ -28,7 +32,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..auth import require_agent, require_user
+from ..auth import require_agent, require_approver, require_user
 from ..database import get_db
 from ..models import ApiKey, Approval, User
 from ..schemas import ApprovalDecisionIn
@@ -80,7 +84,7 @@ def approve(
     approval_id: str,
     decision_in: ApprovalDecisionIn,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_user),
+    current_user: User = Depends(require_approver),
 ):
     a = db.get(Approval, approval_id)
     if not a:
@@ -100,7 +104,7 @@ def deny(
     approval_id: str,
     decision_in: ApprovalDecisionIn,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_user),
+    current_user: User = Depends(require_approver),
 ):
     a = db.get(Approval, approval_id)
     if not a:

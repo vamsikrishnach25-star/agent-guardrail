@@ -2,12 +2,17 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .database import Base, engine, SessionLocal
-from .routers import events, policies, approvals, auth, keys
+from .migrations import run_startup_migrations
+from .routers import events, policies, approvals, auth, keys, users
 from .seed_admin import seed_admin_user, seed_demo_api_key, seed_support_api_key
 from .seed_policies import seed_default_policies, seed_support_policies
 
-# Week 1: create tables directly. Alembic migrations get introduced once
-# the schema stabilizes past Week 2 (policies/risk/approvals tables).
+# Week 1: create tables directly for anything brand-new. Week 11 adds a
+# small hand-rolled migration step before this, for the one case
+# create_all() can't handle: a column added to a table that already has
+# rows on the live deployment (see migrations.py for why this isn't
+# Alembic).
+run_startup_migrations(engine)
 Base.metadata.create_all(bind=engine)
 
 with SessionLocal() as db:
@@ -21,7 +26,7 @@ with SessionLocal() as db:
     seed_support_policies(db)
     seed_support_api_key(db)
 
-app = FastAPI(title="Agent Guardrail", version="0.3.0")
+app = FastAPI(title="Agent Guardrail", version="0.4.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -35,6 +40,7 @@ app.include_router(keys.router)
 app.include_router(events.router)
 app.include_router(policies.router)
 app.include_router(approvals.router)
+app.include_router(users.router)
 
 
 @app.get("/health")

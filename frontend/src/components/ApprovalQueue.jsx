@@ -2,9 +2,14 @@ import { useState } from "react";
 import { api } from "../api.js";
 import { usePolling } from "../usePolling.js";
 
-export default function ApprovalQueue() {
+export default function ApprovalQueue({ role }) {
   const [busyId, setBusyId] = useState(null);
   const pending = usePolling(() => api.listApprovals("PENDING"), 2500);
+  // Week 11: approving/denying needs APPROVER or ADMIN - VIEWER can watch
+  // the queue but not act on it. The backend enforces this independently
+  // (require_approver); hiding the buttons here is just so a VIEWER isn't
+  // shown controls that would 403 if clicked.
+  const canDecide = role === "ADMIN" || role === "APPROVER";
 
   // Week 6: who's deciding is no longer typed in here - it's whoever is
   // logged into the dashboard right now (the backend reads it off the JWT
@@ -59,14 +64,18 @@ export default function ApprovalQueue() {
                 <div className="meta">reason: {a.reason}</div>
               </div>
             </div>
-            <div className="approval-actions">
-              <button className="btn btn-approve" disabled={busyId === a.id} onClick={() => act(a.id, "approve")}>
-                Approve
-              </button>
-              <button className="btn btn-deny" disabled={busyId === a.id} onClick={() => act(a.id, "deny")}>
-                Deny
-              </button>
-            </div>
+            {canDecide ? (
+              <div className="approval-actions">
+                <button className="btn btn-approve" disabled={busyId === a.id} onClick={() => act(a.id, "approve")}>
+                  Approve
+                </button>
+                <button className="btn btn-deny" disabled={busyId === a.id} onClick={() => act(a.id, "deny")}>
+                  Deny
+                </button>
+              </div>
+            ) : (
+              <div className="meta" style={{ marginTop: 8 }}>view only - your role ({role}) can't decide approvals</div>
+            )}
           </div>
         ))
       )}
