@@ -69,6 +69,8 @@ def report_tool_call(
         policy_result=outcome["policy_result"],
         risk_score=outcome["risk_score"],
         risk_level=outcome["risk_level"],
+        anomaly_score=outcome["anomaly_score"],
+        anomaly_reason=outcome["anomaly_reason"],
         # A BLOCKed/REQUIRE_APPROVAL call never reaches the Tool Executor,
         # so it has no execution outcome to report later - mark it now
         # rather than leaving it stuck at PENDING forever.
@@ -134,6 +136,8 @@ def list_events(limit: int = 50, db: Session = Depends(get_db), _user: User = De
             "policy_result": r.policy_result,
             "risk_score": r.risk_score,
             "risk_level": r.risk_level,
+            "anomaly_score": r.anomaly_score,
+            "anomaly_reason": r.anomaly_reason,
             "execution_status": r.execution_status,
             "result": r.result,
             "error": r.error,

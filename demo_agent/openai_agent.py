@@ -22,6 +22,13 @@ Usage:
     $env:GUARDRAIL_API_KEY="gk_..."   # minted for agent_id="openai-finance-agent"
     $env:OPENAI_API_KEY="sk-..."
     python openai_agent.py
+
+    Defaults to a local backend (http://localhost:8000). To run against the
+    deployed Render backend instead, also set:
+        $env:GUARDRAIL_BACKEND_URL="https://agent-guardrail-zuls.onrender.com"
+    - and make sure GUARDRAIL_API_KEY was minted from the *deployed*
+    dashboard's API Keys tab, not a local dev server (they're different
+    databases, same as noted in test_deployed.py).
 """
 import json
 import os
@@ -49,7 +56,13 @@ if not OPENAI_API_KEY:
 
 MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
 
-guardrail = Guardrail(agent_id="openai-finance-agent", api_key=GUARDRAIL_API_KEY, backend_url="http://localhost:8000")
+# Defaults to local dev, same as finance_agent.py's SDK usage - set
+# GUARDRAIL_BACKEND_URL to point this at the deployed Render backend
+# instead (see test_deployed.py for the same pattern applied to the
+# scripted Week 1 agent).
+BACKEND_URL = os.environ.get("GUARDRAIL_BACKEND_URL", "http://localhost:8000")
+
+guardrail = Guardrail(agent_id="openai-finance-agent", api_key=GUARDRAIL_API_KEY, backend_url=BACKEND_URL)
 openai_client = OpenAI(api_key=OPENAI_API_KEY)
 
 # One real Python function per tool - the same functions the toy agent

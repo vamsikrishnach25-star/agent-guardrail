@@ -50,6 +50,23 @@ def _old_style_users_engine():
     return engine
 
 
+def _old_style_events_engine():
+    """An `events` table shaped like it was before Week 12 - no
+    anomaly_score/anomaly_reason."""
+    engine = _fresh_engine()
+    with engine.begin() as conn:
+        conn.execute(text(
+            "CREATE TABLE events ("
+            "id VARCHAR PRIMARY KEY, event_id VARCHAR UNIQUE NOT NULL, session_id VARCHAR NOT NULL, "
+            "agent_id VARCHAR NOT NULL, event_type VARCHAR NOT NULL, tool_name VARCHAR NOT NULL, "
+            "arguments JSON NOT NULL, policy_result VARCHAR, risk_score FLOAT, risk_level VARCHAR, "
+            "decision VARCHAR NOT NULL, execution_status VARCHAR, result JSON, error VARCHAR, "
+            "duration_ms INTEGER, created_at DATETIME NOT NULL"
+            ")"
+        ))
+    return engine
+
+
 def _old_style_policies_engine():
     """A `policies` table shaped like it was before Week 9 - no
     `condition_dsl`. This is the exact shape the live deployment's table
@@ -128,7 +145,54 @@ def test_reproduces_the_actual_production_failure():
     assert count == 1
 
 
-# ---- both columns together, general properties ----
+# ---- events.anomaly_score / events.anomaly_reason ----
+
+def test_migration_adds_missing_anomaly_columns():
+    engine = _old_style_events_engine()
+    columns_before = {c["name"] for c in inspect(engine).get_columns("events")}
+    assert "anomaly_score" not in columns_before
+    assert "anomaly_reason" not in columns_before
+
+    run_startup_migrations(engine)
+
+    columns_after = {c["name"] for c in inspect(engine).get_columns("events")}
+    assert "anomaly_score" in columns_after
+    assert "anomaly_reason" in columns_after
+
+
+def test_events_migration_reproduces_what_an_anomaly_insert_needs():
+    """Same pattern as test_reproduces_the_actual_production_failure above,
+    applied preemptively this time instead of after an incident: build the
+    table shape the live deployment had before this migration existed, run
+    the migration, then perform the exact kind of INSERT
+    routers/events.py's report_tool_call() does now that it writes
+    anomaly_score/anomaly_reason on every event."""
+    engine = _old_style_events_engine()
+    run_startup_migrations(engine)
+
+    with engine.begin() as conn:
+        conn.execute(text(
+            "INSERT INTO events "
+            "(id, event_id, session_id, agent_id, event_type, tool_name, arguments, "
+            "policy_result, risk_score, risk_level, decision, anomaly_score, anomaly_reason, "
+            "execution_status, created_at) "
+            "VALUES (:id, :event_id, :session_id, :agent_id, :event_type, :tool_name, :arguments, "
+            ":policy_result, :risk_score, :risk_level, :decision, :anomaly_score, :anomaly_reason, "
+            ":execution_status, :created_at)"
+        ), {
+            "id": "e1", "event_id": "evt-1", "session_id": "s1", "agent_id": "test-agent",
+            "event_type": "TOOL_CALL", "tool_name": "export_report", "arguments": "{}",
+            "policy_result": None, "risk_score": 0, "risk_level": "LOW", "decision": "REQUIRE_APPROVAL",
+            "anomaly_score": 100, "anomaly_reason": "never called before",
+            "execution_status": "REQUIRE_APPROVAL", "created_at": "2026-01-01 00:00:00",
+        })  # must not raise
+
+    with engine.connect() as conn:
+        count = conn.execute(text("SELECT COUNT(*) FROM events")).scalar_one()
+    assert count == 1
+
+
+# ---- all three columns together, general properties ----
 
 def test_migration_is_idempotent():
     """Running it twice (e.g. two backend instances starting up at once,

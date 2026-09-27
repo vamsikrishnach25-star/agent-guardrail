@@ -60,7 +60,7 @@ export default function Overview() {
       ) : (
         <table>
           <thead>
-            <tr><th>Tool</th><th>Agent</th><th>Decision</th><th>Risk</th><th>Status</th><th>Time</th></tr>
+            <tr><th>Tool</th><th>Agent</th><th>Decision</th><th>Risk</th><th>Anomaly</th><th>Status</th><th>Time</th></tr>
           </thead>
           <tbody>
             {recent.map((e) => (
@@ -69,6 +69,18 @@ export default function Overview() {
                 <td>{e.agent_id}</td>
                 <td><span className={`badge badge-${e.decision}`}>{e.decision}</span></td>
                 <td>{e.risk_score != null ? `${e.risk_score}/100 (${e.risk_level})` : "-"}</td>
+                <td>
+                  {e.anomaly_score != null && e.anomaly_score > 0 ? (
+                    <span
+                      className={`badge ${e.anomaly_score >= 100 ? "badge-BLOCK" : "badge-REQUIRE_APPROVAL"}`}
+                      title={e.anomaly_reason || ""}
+                    >
+                      {e.anomaly_score}/100
+                    </span>
+                  ) : (
+                    <span style={{ color: "var(--text-dim)" }}>—</span>
+                  )}
+                </td>
                 <td><span className={`badge badge-${e.execution_status}`}>{e.execution_status}</span></td>
                 <td>{new Date(e.created_at).toLocaleTimeString()}</td>
               </tr>

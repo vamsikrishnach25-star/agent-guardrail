@@ -104,6 +104,25 @@ production incident - see README) - you'll see
 deploy is the first to run the fixed `migrations.py` against a live
 database, and never again after that.
 
+## Redeploying after Week 12 (Anomaly Detection)
+
+Same mechanism, this time migrated proactively rather than after an
+incident: `events.anomaly_score` and `events.anomaly_reason` are new.
+Check the logs for:
+
+```
+[guardrail] migrated: added events.anomaly_score
+[guardrail] migrated: added events.anomaly_reason
+```
+
+Both are nullable with no default, so every event logged before this
+migration simply has no anomaly info (`null` in the API response) -
+nothing to backfill, and nothing else reads those columns in a way that
+treats `null` as an error. Also new: `scikit-learn` and `numpy` are in
+`requirements.txt` - make sure the build actually installs them (check
+the deploy's build log for the pip install step) before assuming this
+feature is live.
+
 **A deploy marked "Failed" on Render can still have partially altered the
 database.** `_ensure_column()`'s `ALTER TABLE` commits in its own
 transaction immediately, separately from whatever crashes later in that

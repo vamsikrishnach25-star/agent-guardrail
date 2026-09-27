@@ -18,16 +18,60 @@ activity against the deployed backend.
 Full architecture and phased plan: see `Agent_Guardrail_Build_Plan.md` and
 `Agent_Guardrail_Project_Proposal.docx` in this folder.
 
-## Status: Week 11 — RBAC: Admin / Approver / Viewer roles, plus a fixed migration gap
+## Status: Week 12 — Anomaly Detection: a per-agent behavioral baseline
 
-Everything from Weeks 1-10, plus real role-based access control on top of
-the JWT login that's existed since Week 6 - one flat admin account
-replaced with three roles, each genuinely restricted server-side, not
-just hidden in the UI. Also includes a same-week fix for a real
-production incident this update caused - see the last bullet under
-"Design notes" below for the full story - so `migrations.py` now handles
-both `users.role` (Week 11) and the `policies.condition_dsl` column that
-had been silently missing since Week 9.
+Everything from Weeks 1-11 (RBAC, the incident-fixed migration system,
+the policy DSL, a second demo agent, real tests/CI), plus a third safety
+net alongside Policy and Risk: an Anomaly Engine that judges a tool call
+against a specific agent's own history, not just a generic danger score.
+A hybrid design - two deterministic checks (a tool never seen before, an
+amount far above this agent's own average) backed by a scikit-learn
+IsolationForest for subtler multivariate patterns - after directly
+verifying that IsolationForest alone misses single-feature extreme
+outliers (see the anomaly_engine.py docstring and the "Design notes"
+below for exactly how that was found and why the fix isn't "tune the
+model harder"). `migrations.py` learned its own lesson from the Week 9/10
+incident: the two new `events` columns this feature needs were migrated
+in the same commit the model changed, not after a deploy broke.
+
+- **`anomaly_engine.py`'s `detect_anomaly()`** - the third input to the
+  Decision Engine (`decision_engine.py`), alongside Policy and Risk. Pulls
+  an agent's own recent events (`HISTORY_WINDOW`, capped at 200),
+  requires `MIN_HISTORY` (20) of them before judging anything at all
+  (cold start), then checks two deterministic signals - has this agent
+  ever called this tool before, is this amount more than 3x its own
+  historical average - before falling back to a per-request
+  IsolationForest fit on that same history for subtler combinations.
+- **Wired into the pipeline, not bolted alongside it.** `pipeline.py`
+  calls `detect_anomaly()` the same way it calls the Policy and Risk
+  Engines, and `decision_engine.decide()` gained one more precedence
+  rule - anomaly sits below risk (deterministic, reproducible signals
+  outrank a statistical one), above the default ALLOW. Every event now
+  persists `anomaly_score`/`anomaly_reason`, surfaced in the dashboard's
+  Overview and Trace Viewer next to the existing risk badge, and the
+  Approval Queue shows the anomaly's own reason text when that's what
+  triggered the approval - no separate "anomaly" screen needed, it's
+  presented as one more fact about a decision, not a different feature.
+- **9 new backend tests** (142 total): cold start, repeat-of-normal-
+  behavior, both deterministic rules individually (including a "5x jump
+  but below the floor" case that must *not* trigger), per-agent baseline
+  isolation (agent A's history must not make agent B's calls look
+  normal), a migration regression test for the two new `events` columns
+  in the same style as the Week 9 incident's, and one true end-to-end
+  test that seeds history through the *real* `POST /api/v1/events` API
+  and asserts the live response - not just what `detect_anomaly()`
+  returns in isolation.
+
+### Previously: Week 11 — RBAC + a fixed migration gap
+
+Real role-based access control on top of the JWT login that's existed
+since Week 6 - one flat admin account replaced with three roles
+(ADMIN/APPROVER/VIEWER), each genuinely restricted server-side, not just
+hidden in the UI. Also includes a same-week fix for a real production
+incident that update caused - see "Design notes" for the full story - so
+`migrations.py` handles both `users.role` (Week 11) and the
+`policies.condition_dsl` column that had been silently missing since
+Week 9.
 
 - **Three roles.** VIEWER: read-only everywhere (events, approvals,
   policies, keys). APPROVER: VIEWER + can approve/deny. ADMIN: APPROVER +
@@ -75,8 +119,20 @@ dashboard login (Week 6), Docker (`docker-compose up --build`), measured
 benchmarks (`BENCHMARKS.md`), and a live deployment (`DEPLOYMENT.md`).
 
 That's every item from the original build plan's stretch layer except
-anomaly detection and the (purely cosmetic) execution graph - see
-`Agent_Guardrail_Build_Plan.md` for what's left if there's still runway
+the (purely cosmetic) execution graph - see `Agent_Guardrail_Build_Plan.md`
+for what's left if there's still runway
+
+### Future scope
+
+- **Live end-to-end test of the OpenAI agent (Week 8) against a real
+  GPT model.** The integration itself is already fully proven - 6 mocked
+  tests cover the tool-calling <-> Guardrail wiring and run in CI on
+  every push - but an actual live run needs a paid OpenAI API key
+  (gpt-4o-mini costs fractions of a cent per call, but requires billing
+  set up). Deliberately left as a documented follow-up rather than run,
+  to keep the whole project's running cost genuinely $0 - every other
+  piece here (Render, Neon Postgres, GitHub Actions) is on a free tier
+  with no card required.
 before interviews.
 
 ## Project layout
@@ -88,16 +144,17 @@ agent-guardrail/
     Dockerfile             Backend container (see comment re: build context)
     pytest.ini              Points pytest at backend/tests
     conftest.py              Shared fixtures: test DB reset+reseed, auth/agent headers
-    tests/                   133 tests: auth, RBAC, migrations, events/policy pipeline, approvals, policies, keys, DSL
+    tests/                   142 tests: auth, RBAC, migrations, anomaly detection, events/policy pipeline, approvals, policies, keys, DSL
     app/
       policy_engine.py      Evaluates configured policies against a tool call
       policy_dsl.py            Week 9: structured condition tree (AST + evaluator)
-      pipeline.py               Week 9: shared policy->risk->decision pipeline (events + simulate)
+      pipeline.py               Week 9/12: shared policy->risk->anomaly->decision pipeline (events + simulate)
       risk_engine.py         Additive risk scoring (0-100 -> LOW/MEDIUM/HIGH/CRITICAL)
-      decision_engine.py     Combines policy + risk into one final decision
+      anomaly_engine.py        Week 12: per-agent behavioral baseline (rules + IsolationForest)
+      decision_engine.py     Combines policy + risk + anomaly into one final decision
       security.py             Password hashing (bcrypt), API key gen, JWT encode/decode
       auth.py                  FastAPI deps: require_agent/require_user + (Week 11) require_admin/require_approver
-      migrations.py             Week 11: tiny hand-rolled startup migration (adds users.role safely)
+      migrations.py             Startup migration (users.role, policies.condition_dsl, events.anomaly_*)
       seed_policies.py       Seeds default + (Week 10) support-agent policies
       seed_admin.py            Seeds admin login (role=ADMIN) + demo API keys (finance + support agents)
       routers/events.py      POST tool call -> decision (API key); GET events (login)
@@ -191,6 +248,17 @@ BLOCKed with no approval step, since that policy blocks outright.
 Need a key for a different agent_id, or want to revoke one? The dashboard's
 **API Keys** tab does both, once you're logged in.
 
+The Overview/Trace Viewer's **Anomaly** column will read `-` for a while
+after a fresh start - the Anomaly Engine (Week 12) needs at least 20
+historical events for a given agent_id before it has a baseline to judge
+against (`MIN_HISTORY` in `anomaly_engine.py`). Run `finance_agent.py` a
+few times in a row (each run is 3 events) to cross that threshold, then
+try one call to a tool that agent has never used, e.g.
+`curl -X POST http://localhost:8000/api/v1/events -H "X-API-Key: gk_..." -H "Content-Type: application/json" -d '{"event_id":"anomaly-test","session_id":"s1","agent_id":"finance-agent","tool_name":"export_report","arguments":{}}'`
+- watch it come back `REQUIRE_APPROVAL` with `anomaly_score: 100`, even
+though nothing in `policy_engine.py` or `risk_engine.py` targets that
+tool_name at all.
+
 Check the raw API directly any time:
 
 ```bash
@@ -215,6 +283,12 @@ $env:GUARDRAIL_API_KEY="gk_..."     # the key you just minted for openai-finance
 $env:OPENAI_API_KEY="sk-..."
 python openai_agent.py
 ```
+
+To run this against the deployed Render backend instead of localhost, also
+set `$env:GUARDRAIL_BACKEND_URL="https://agent-guardrail-zuls.onrender.com"`
+and mint the Guardrail key from the *deployed* dashboard's API Keys tab
+(the local dev database and the live one are separate - a key from one
+won't authenticate against the other).
 
 With no arguments it runs a default instruction that naturally exercises
 all three outcomes - an allowed balance check, a high-value transfer that
@@ -263,7 +337,7 @@ cd backend
 pytest -v
 ```
 
-All 133 tests run against a throwaway SQLite file (`conftest.py` points
+All 142 tests run against a throwaway SQLite file (`conftest.py` points
 `DATABASE_URL` at one before anything else imports), reset to a clean,
 identically-seeded schema before every test - no shared state between
 tests, no dependency on execution order, no need for a real Postgres
@@ -542,3 +616,38 @@ a public URL (Render, or any Docker-based host) instead of just localhost.
   process that ran it, so idempotency (`_ensure_column`'s own "does
   nothing if already present" check) isn't optional, it's what makes a
   retried deploy safe at all.
+- **A hybrid anomaly detector, not a pure-ML one - discovered mid-build,
+  not designed that way from the start (Week 12).** The first version
+  used only IsolationForest across four numeric features. It looked
+  reasonable in a quick check, then failed a harder one: fit on 30
+  historical events with a near-constant feature (a tool this agent had
+  always called with `amount≈0`), a test call with `amount=999999` came
+  back as a normal inlier. Traced it to how the algorithm actually
+  works - it isolates points via *relative* threshold splits drawn from
+  the training data's own observed range at each node, with no notion of
+  "this value is six orders of magnitude outside anything I've seen." A
+  sizeable share of ordinary points can end up on the same side of a
+  near-zero split threshold as a genuine outlier, diluting the very
+  isolation that's supposed to flag it. Verified this directly against
+  the fitted trees (`export_text`), not just inferred it from behavior -
+  see `anomaly_engine.py`'s docstring for the full trace. The fix wasn't
+  hyperparameter tuning; it was recognizing that IsolationForest is
+  good at a specific kind of anomaly (unusual *combinations* across
+  several roughly-comparable features) and bad at another (one feature
+  wildly outside its own history), and using a plain deterministic check
+  for the second instead of forcing a model to do a job it structurally
+  can't. The same instinct as `simpleeval` over `eval()` and the JSON DSL
+  over a bigger grammar elsewhere in this project - match the tool to
+  what it's actually being asked to catch, and know (and say) where a
+  fancier-sounding tool quietly stops working.
+- **Anomaly sits below Risk in the Decision Engine's precedence,
+  deliberately (Week 12).** Risk scores are deterministic - the same
+  arguments always produce the same score, reproducible from the code
+  alone. An IsolationForest's judgment depends on whatever history
+  happened to be in the database at the moment it ran; refit it five
+  minutes later against slightly more history and the exact score can
+  shift, even though the classification usually won't. A statistical
+  signal that can drift under its own re-evaluation shouldn't outrank a
+  deterministic one in a system whose job is to justify every decision
+  to a human afterward - so it gets the final word only once Policy and
+  Risk have both already passed.

@@ -1,7 +1,7 @@
 """
 A tiny, hand-rolled startup migration - not Alembic.
 
-Two columns added to already-existing, already-live tables so far:
+Columns added to already-existing, already-live tables so far:
 
 - `users.role` (Week 11) - RBAC.
 - `policies.condition_dsl` (Week 9) - the structured policy DSL. This one
@@ -14,6 +14,10 @@ Two columns added to already-existing, already-live tables so far:
   this file handle more than one column so the same mistake is harder to
   repeat: `_ensure_column()` is the general form, `run_startup_migrations`
   is just a short list of calls to it.
+- `events.anomaly_score` / `events.anomaly_reason` (Week 12) - the
+  Anomaly Engine's output. Added here in the same commit the model
+  changed, unlike condition_dsl above - that incident is exactly why this
+  one didn't repeat it.
 
 `Base.metadata.create_all()` (used since Week 1, see database.py/main.py)
 only creates tables that don't exist yet - it never alters an existing
@@ -72,3 +76,10 @@ def run_startup_migrations(engine: Engine) -> None:
     # already exactly what the code treats it as everywhere else
     # (policy_engine.py falls back to the legacy `condition` string).
     _ensure_column(engine, "policies", "condition_dsl", "JSON")
+
+    # Nullable, no default needed - a NULL anomaly_score/anomaly_reason on
+    # an existing (pre-Week-12) event just means "scored before anomaly
+    # detection existed", which every reader of these columns already
+    # treats as "no anomaly info available" rather than an error state.
+    _ensure_column(engine, "events", "anomaly_score", "INTEGER")
+    _ensure_column(engine, "events", "anomaly_reason", "VARCHAR")

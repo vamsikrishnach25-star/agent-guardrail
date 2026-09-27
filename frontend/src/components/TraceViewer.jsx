@@ -79,6 +79,9 @@ export default function TraceViewer() {
                 <span className={`badge badge-${e.decision}`}>{e.decision}</span>{" "}
                 {e.policy_result && <>· policy: {e.policy_result}</>}{" "}
                 {e.risk_score != null && <>· risk: {e.risk_score}/100 ({e.risk_level})</>}
+                {e.anomaly_score != null && e.anomaly_score > 0 && (
+                  <>{" "}· anomaly: {e.anomaly_score}/100{e.anomaly_reason && ` (${e.anomaly_reason})`}</>
+                )}
                 <br />
                 status: <span className={`badge badge-${e.execution_status}`}>{e.execution_status}</span>
                 {e.result && <>{" "}· result: {JSON.stringify(e.result)}</>}

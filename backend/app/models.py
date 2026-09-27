@@ -39,6 +39,14 @@ class Event(Base):
     risk_level = Column(String, nullable=True)
     decision = Column(String, nullable=False, default="ALLOW")
 
+    # Week 12: Anomaly Engine output - how unusual this call was for this
+    # specific agent, judged against its own history (see anomaly_engine.py).
+    # Nullable: an event scored before Week 12 has none, same reasoning as
+    # condition_dsl being nullable on Policy - "no anomaly info" is a valid,
+    # already-handled state everywhere this is read, not a migration hazard.
+    anomaly_score = Column(Integer, nullable=True)
+    anomaly_reason = Column(String, nullable=True)
+
     execution_status = Column(String, nullable=True)  # SUCCESS / FAILURE / BLOCKED / PENDING
     result = Column(JSON, nullable=True)
     error = Column(String, nullable=True)

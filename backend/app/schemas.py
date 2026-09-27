@@ -20,6 +20,9 @@ class DecisionOut(BaseModel):
     risk_level: Optional[str] = None
     reason: Optional[str] = None
     risk_factors: list[str] = []
+    anomaly_score: Optional[int] = None       # Week 12: 0-100, how unusual for this specific agent
+    anomaly_is_anomaly: Optional[bool] = None
+    anomaly_reason: Optional[str] = None
 
 
 class ToolResultIn(BaseModel):
@@ -65,6 +68,9 @@ class PolicySimulateOut(BaseModel):
     reason: Optional[str] = None
     risk_factors: list[str] = []
     matched_policies: list[str] = []
+    anomaly_score: Optional[int] = None
+    anomaly_is_anomaly: Optional[bool] = None
+    anomaly_reason: Optional[str] = None
 
 
 class ApprovalOut(BaseModel):
