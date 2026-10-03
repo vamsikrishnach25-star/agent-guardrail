@@ -189,6 +189,7 @@ button {
 
 .btn-approve { background: var(--green); border-color: var(--green); color: #08281a; font-weight: 600; }
 .btn-deny { background: var(--red); border-color: var(--red); color: #2a0808; font-weight: 600; }
+.toggle-active { background: var(--accent); border-color: var(--accent); color: white; }
 
 .empty-state {
   color: var(--text-dim);

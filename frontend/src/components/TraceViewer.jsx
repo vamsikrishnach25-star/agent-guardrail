@@ -1,10 +1,14 @@
 import { useEffect, useState } from "react";
 import { api } from "../api.js";
 import { usePolling } from "../usePolling.js";
+import ExecutionGraph from "./ExecutionGraph.jsx";
 
-// Groups the flat event log into per-session traces. A dedicated
-// React Flow graph is a nicer upgrade later, but a chronological timeline
-// tells the same story - which is what actually matters in an interview.
+// Groups the flat event log into per-session traces. Week 13 added a
+// React Flow graph as a second view of the same data - a toggle, not a
+// separate screen, since both views answer the same question ("what did
+// this session do") and a chronological timeline already tells that story
+// perfectly well on its own; the graph is a visual nicety on top of it,
+// not a replacement for it.
 function groupBySession(events) {
   const sessions = {};
   for (const e of events) {
@@ -20,6 +24,7 @@ function groupBySession(events) {
 export default function TraceViewer() {
   const events = usePolling(() => api.listEvents(500), 4000);
   const [selectedSession, setSelectedSession] = useState(null);
+  const [view, setView] = useState("timeline"); // "timeline" | "graph"
 
   const sessions = events.data ? groupBySession(events.data) : {};
   const sessionIds = Object.keys(sessions).sort((a, b) => {
@@ -69,30 +74,49 @@ export default function TraceViewer() {
         ))}
       </div>
 
-      <div className="trace">
-        {steps.map((e) => (
-          <div className="trace-step" key={e.event_id}>
-            <div className="dot" />
-            <div>
-              <div className="tool-name">{e.tool_name}({JSON.stringify(e.arguments)})</div>
-              <div className="details">
-                <span className={`badge badge-${e.decision}`}>{e.decision}</span>{" "}
-                {e.policy_result && <>· policy: {e.policy_result}</>}{" "}
-                {e.risk_score != null && <>· risk: {e.risk_score}/100 ({e.risk_level})</>}
-                {e.anomaly_score != null && e.anomaly_score > 0 && (
-                  <>{" "}· anomaly: {e.anomaly_score}/100{e.anomaly_reason && ` (${e.anomaly_reason})`}</>
-                )}
-                <br />
-                status: <span className={`badge badge-${e.execution_status}`}>{e.execution_status}</span>
-                {e.result && <>{" "}· result: {JSON.stringify(e.result)}</>}
-                {e.error && <>{" "}· error: {e.error}</>}
-                <br />
-                {new Date(e.created_at).toLocaleString()}
+      <div className="toolbar">
+        <button
+          className={`btn ${view === "timeline" ? "toggle-active" : ""}`}
+          onClick={() => setView("timeline")}
+        >
+          Timeline
+        </button>
+        <button
+          className={`btn ${view === "graph" ? "toggle-active" : ""}`}
+          onClick={() => setView("graph")}
+        >
+          Graph
+        </button>
+      </div>
+
+      {view === "graph" ? (
+        <ExecutionGraph steps={steps} />
+      ) : (
+        <div className="trace">
+          {steps.map((e) => (
+            <div className="trace-step" key={e.event_id}>
+              <div className="dot" />
+              <div>
+                <div className="tool-name">{e.tool_name}({JSON.stringify(e.arguments)})</div>
+                <div className="details">
+                  <span className={`badge badge-${e.decision}`}>{e.decision}</span>{" "}
+                  {e.policy_result && <>· policy: {e.policy_result}</>}{" "}
+                  {e.risk_score != null && <>· risk: {e.risk_score}/100 ({e.risk_level})</>}
+                  {e.anomaly_score != null && e.anomaly_score > 0 && (
+                    <>{" "}· anomaly: {e.anomaly_score}/100{e.anomaly_reason && ` (${e.anomaly_reason})`}</>
+                  )}
+                  <br />
+                  status: <span className={`badge badge-${e.execution_status}`}>{e.execution_status}</span>
+                  {e.result && <>{" "}· result: {JSON.stringify(e.result)}</>}
+                  {e.error && <>{" "}· error: {e.error}</>}
+                  <br />
+                  {new Date(e.created_at).toLocaleString()}
+                </div>
               </div>
             </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
     </>
   );
 }

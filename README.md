@@ -18,7 +18,23 @@ activity against the deployed backend.
 Full architecture and phased plan: see `Agent_Guardrail_Build_Plan.md` and
 `Agent_Guardrail_Project_Proposal.docx` in this folder.
 
-## Status: Week 12 — Anomaly Detection: a per-agent behavioral baseline
+## Status: Week 13 — Execution Graph: a React Flow view of each session
+
+The last item from the original build plan's stretch layer. A second,
+visual way to read the same session data the Trace Viewer's timeline
+already shows - one node per tool call, connected in chronological order,
+colored by decision (ALLOW/BLOCK/REQUIRE_APPROVAL), with anomaly info
+called out directly on the node. Built as a toggle inside the existing
+Trace Viewer, not a new screen or a new backend endpoint - same
+"dashboard needed zero new backend endpoints" principle this whole
+frontend has followed since Week 4, and the honest reason it's a plain
+left-to-right chain instead of an auto-laid-out graph: the data really is
+a chain (one session's events, in order), and nothing in this system
+currently records agents calling tools concurrently - reaching for a
+layout engine like dagre would be solving a problem this data doesn't
+have.
+
+### Previously: Week 12 — Anomaly Detection: a per-agent behavioral baseline
 
 Everything from Weeks 1-11 (RBAC, the incident-fixed migration system,
 the policy DSL, a second demo agent, real tests/CI), plus a third safety
@@ -118,9 +134,8 @@ CI on every push/PR (Week 7), API key auth for agents and real JWT
 dashboard login (Week 6), Docker (`docker-compose up --build`), measured
 benchmarks (`BENCHMARKS.md`), and a live deployment (`DEPLOYMENT.md`).
 
-That's every item from the original build plan's stretch layer except
-the (purely cosmetic) execution graph - see `Agent_Guardrail_Build_Plan.md`
-for what's left if there's still runway
+That's every item from the original build plan's stretch layer -
+see `Agent_Guardrail_Build_Plan.md` for the full history.
 
 ### Future scope
 
@@ -258,6 +273,11 @@ try one call to a tool that agent has never used, e.g.
 - watch it come back `REQUIRE_APPROVAL` with `anomaly_score: 100`, even
 though nothing in `policy_engine.py` or `risk_engine.py` targets that
 tool_name at all.
+
+The **Trace Viewer** tab has a **Timeline / Graph** toggle (Week 13) -
+Graph renders the same session as a React Flow diagram, one node per
+tool call, colored by decision, with the anomaly badge shown directly on
+the node when one fired.
 
 Check the raw API directly any time:
 
@@ -651,3 +671,20 @@ a public URL (Render, or any Docker-based host) instead of just localhost.
   deterministic one in a system whose job is to justify every decision
   to a human afterward - so it gets the final word only once Policy and
   Risk have both already passed.
+- **The execution graph is a toggle, not a new screen - and a plain
+  chain, not an auto-laid-out DAG (Week 13).** Two choices, same
+  reasoning behind both: build the simplest thing the data actually
+  supports. A session's events are already a strict chronological
+  sequence with no recorded branching, so the graph is `nodes[i] ->
+  nodes[i+1]` with hand-computed positions, not a dagre/elkjs layout
+  pass - pulling in a layout engine to arrange a straight line would be
+  solving a problem that doesn't exist here. And it lives inside the
+  existing Trace Viewer behind a Timeline/Graph toggle rather than a new
+  sidebar tab, because both views answer the identical question ("what
+  did this session do") from the identical `GET /api/v1/events` data -
+  splitting them into separate screens would suggest they're showing
+  different things when they're not. The same restraint as not using
+  Redux for four screens that poll a REST API (see `api.js`'s own
+  comment): add the dependency (`reactflow`) for what it's genuinely
+  good at (rendering and laying out an interactive node diagram), and
+  nothing more.
