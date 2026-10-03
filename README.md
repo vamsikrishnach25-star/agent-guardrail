@@ -15,8 +15,9 @@ to wake up. Sign in with the dashboard's seeded admin login (see
 run `demo_agent/test_deployed.py` with a matching API key to generate live
 activity against the deployed backend.
 
-Full architecture and phased plan: see `Agent_Guardrail_Build_Plan.md` and
-`Agent_Guardrail_Project_Proposal.docx` in this folder.
+Built incrementally over 13 weeks, each one shipped, tested, and deployed
+before the next started - see "Status" below for what's current, and the
+"Previously" sections and git history for everything that came before it.
 
 ## Status: Week 13 — Execution Graph: a React Flow view of each session
 
@@ -134,8 +135,9 @@ CI on every push/PR (Week 7), API key auth for agents and real JWT
 dashboard login (Week 6), Docker (`docker-compose up --build`), measured
 benchmarks (`BENCHMARKS.md`), and a live deployment (`DEPLOYMENT.md`).
 
-That's every item from the original build plan's stretch layer -
-see `Agent_Guardrail_Build_Plan.md` for the full history.
+That's every item from the original build plan's stretch layer, including
+anomaly detection and the execution graph - see the git history and this
+file's "Previously" sections for how each week built on the last.
 
 ### Future scope
 
@@ -688,3 +690,7 @@ a public URL (Render, or any Docker-based host) instead of just localhost.
   comment): add the dependency (`reactflow`) for what it's genuinely
   good at (rendering and laying out an interactive node diagram), and
   nothing more.
+
+## License
+
+MIT - see `LICENSE`.

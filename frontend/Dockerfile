@@ -3,8 +3,11 @@
 # dashboard's dev dependencies in the final image.
 FROM node:20-slim AS build
 WORKDIR /app
-COPY package.json ./
-RUN npm install
+COPY package.json package-lock.json ./
+# npm ci (not install) - installs exactly what's in package-lock.json,
+# failing loudly if it's out of sync with package.json, rather than
+# silently resolving different versions than what's actually tested.
+RUN npm ci
 COPY . .
 # Baked in at build time - Vite inlines env vars into the static bundle,
 # there's no runtime env for a plain static file server to read from.
